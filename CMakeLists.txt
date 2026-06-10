@@ -32,6 +32,10 @@ set(MUDUO_LIBRARIES muduo_net muduo_base pthread)
 message(STATUS "  muduo found (system libraries)")
 
 # 3. ONNX Runtime (推理引擎)
+# 初始化为空，避免 CMake 错误
+set(ONNXRUNTIME_INCLUDE_DIR "")
+set(ONNXRUNTIME_LIBRARY "")
+
 # 方式 A: 使用系统安装的 ONNX Runtime
 find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_cxx_api.h onnxruntime/core/session/onnxruntime_cxx_api.h)
 find_library(ONNXRUNTIME_LIBRARY NAMES onnxruntime onnxruntime_providers_shared)
@@ -108,6 +112,7 @@ message(STATUS "  Threading support enabled")
 # ============================================================
 set(SOURCES
     src/common/Logger.cpp
+    src/common/Status.cpp
     src/model/ModelSession.cpp
     src/model/ModelManager.cpp
     src/inference/InferenceService.cpp
@@ -153,8 +158,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${NLOHMANN_JSON_INCLUDE_DIR}
     ${SPDLOG_INCLUDE_DIR}
-    ${ONNXRUNTIME_INCLUDE_DIR}
 )
+
+# ONNX Runtime 包含目录（如果找到）
+if(ONNXRUNTIME_INCLUDE_DIR)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ONNXRUNTIME_FOUND)
+endif()
 
 # 链接库
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -168,6 +178,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # ONNX Runtime 链接（如果找到）
 if(ONNXRUNTIME_LIBRARY)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_LIBRARY})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ONNXRUNTIME_FOUND)
 endif()
 
 # nlohmann/json 是头文件库，无需链接
@@ -188,6 +199,48 @@ if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ============================================================
+# 框架测试目标（不依赖 ONNX Runtime）
+# ============================================================
+# 当 ONNX Runtime 未安装时，可以编译和测试预处理/NMS 等组件
+add_executable(test_framework
+    src/common/Logger.cpp
+    src/common/Status.cpp
+    src/preprocessing/ImagePreprocessor.cpp
+    src/preprocessing/NMS.cpp
+    tests/test_preprocessing.cpp
+)
+
+target_include_directories(test_framework PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${NLOHMANN_JSON_INCLUDE_DIR}
+    ${SPDLOG_INCLUDE_DIR}
+)
+
+target_link_libraries(test_framework PRIVATE
+    ${OpenCV_LIBS}
+    ${SPDLOG_LIBRARY}
+    GTest::gtest_main
+    Threads::Threads
+)
+
+# 如果 GTest 未安装，跳过
+if(NOT TARGET GTest::gtest_main)
+    message(STATUS "  GTest not found. Skipping test_framework target.")
+    # 使用 FetchContent 获取 GTest
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+    FetchContent_MakeAvailable(googletest)
+    target_link_libraries(test_framework PRIVATE GTest::gtest_main)
+endif()
+
+include(GoogleTest)
+gtest_discover_tests(test_framework)
 
 # ============================================================
 # 配置总结

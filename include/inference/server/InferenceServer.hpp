@@ -40,6 +40,7 @@
 #include <memory>
 #include <string>
 
+#include "inference/common/Status.hpp"
 #include "inference/server/ServerConfig.hpp"
 
 // muduo headers

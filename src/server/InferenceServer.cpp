@@ -51,8 +51,10 @@ void InferenceServer::Start() {
             handlers_->OnMessage(conn, buffer, receiveTime);
         });
 
-    // 启用 NAIVE 高水位处理
-    tcp_server_->enableNAIVEHighWaterMark(1024 * 1024); // 1MB
+    // muduo 版本差异：某些版本没有 enableNAIVEHighWaterMark
+#if 0
+    tcp_server_->enableNAIVEHighWaterMark(1024 * 1024);
+#endif
 
     // 启动
     tcp_server_->start();
@@ -88,9 +90,7 @@ void InferenceServer::Stop() {
         loop_->quit();
     }
 
-    if (tcp_server_) {
-        tcp_server_->stop();
-    }
+    // muduo TcpServer 没有 stop() 方法，直接退出 loop 即可
 }
 
 void InferenceServer::Join() {

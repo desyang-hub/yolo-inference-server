@@ -9,24 +9,19 @@
  *
  * 1. Ort::Env (环境)
  *    - ONNX Runtime 的全局环境，管理日志和资源
- *    - 整个应用只需要一个 Env（类似 Python 的 ort.get_device()）
+ *    - 整个应用只需要一个 Env
  *    - 线程安全，可以在多个 Session 之间共享
  *
  * 2. Ort::SessionOptions (会话选项)
  *    - 配置推理行为：线程数、执行模式、内存分配器等
  *    - 执行模式: OrtExecutionMode::kParallel（并行）或 kSequential（串行）
- *    - intra_op_num_threads: 模型内部操作（如卷积）的并行线程数
- *    - inter_op_num_threads: 模型之间操作（如 pipeline）的并行线程数
  *
  * 3. Ort::Session (会话)
  *    - 加载模型后的推理会话
  *    - 线程安全！可以在多个线程中同时调用 Run()
- *    - 创建耗时（加载模型、编译计算图），所以应该复用
  *
  * 4. Ort::Value (值)
  *    - ONNX 中的张量，包含数据和形状信息
- *    - 输入: 创建 Ort::Value 并填充数据
- *    - 输出: Run() 返回 Ort::Value，提取数据
  *
  * ============================================
  * 线程安全说明
@@ -46,6 +41,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -60,15 +56,6 @@
 // - C++ API: onnxruntime_cxx_api.h (推荐)
 #ifdef ONNXRUNTIME_FOUND
 #include <onnxruntime_cxx_api.h>
-#else
-// 如果 ONNX Runtime 未安装，使用 forward declaration
-// 编译时通过 CMake 的 ONNXRUNTIME_INCLUDE_DIR 指定
-namespace Ort {
-    class Env;
-    class SessionOptions;
-    class Session;
-    class Value;
-}
 #endif
 
 namespace inference {
@@ -81,15 +68,6 @@ namespace inference {
  * - 输入预处理和输出后处理
  * - 推理执行
  * - 模型信息获取
- *
- * 使用示例:
- *   ModelSession session;
- *   auto status = session.Load(config);
- *   if (!status.ok()) { /* 处理错误 */ }
- *
- *   // 运行推理
- *   std::vector<Ort::Value> outputs;
- *   status = session.Run(inputs, outputs);
  */
 class ModelSession {
 public:
@@ -111,6 +89,7 @@ public:
      */
     Status Load(const ModelConfig& config);
 
+#ifdef ONNXRUNTIME_FOUND
     /**
      * @brief 运行推理
      * @param inputs  输入张量数组
@@ -130,6 +109,12 @@ public:
      * 解决首次推理较慢的问题
      */
     Status Warmup();
+
+    /**
+     * @brief 获取 ONNX Session 指针（高级用法）
+     */
+    Ort::Session* GetSession() { return session_.get(); }
+#endif
 
     /**
      * @brief 获取模型配置
@@ -159,18 +144,19 @@ public:
     /**
      * @brief 检查模型是否已加载
      */
-    bool IsLoaded() const { return session_ != nullptr; }
-
-    /**
-     * @brief 获取 ONNX Session 指针（高级用法）
-     */
-    Ort::Session* GetSession() { return session_.get(); }
+    bool IsLoaded() const { return loaded_; }
 
 private:
+#ifdef ONNXRUNTIME_FOUND
     // ONNX Runtime 核心对象
-    Ort::Env env_;                           // 全局环境
-    Ort::SessionOptions session_options_;   // 会话选项
-    std::unique_ptr<Ort::Session> session_; // 推理会话
+    Ort::Env env_;
+    Ort::SessionOptions session_options_;
+    std::unique_ptr<Ort::Session> session_;
+
+    // 内部方法
+    Status ConfigureSessionOptions();
+    Status GetModelInfo();
+#endif
 
     // 模型配置和信息
     ModelConfig config_;
@@ -178,10 +164,7 @@ private:
     std::vector<std::string> output_names_;
     std::vector<int64_t> input_shape_;
     std::vector<int64_t> output_shape_;
-
-    // 内部方法
-    Status ConfigureSessionOptions();
-    Status GetModelInfo();
+    bool loaded_ = false;
 };
 
 } // namespace inference

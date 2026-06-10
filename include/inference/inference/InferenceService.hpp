@@ -15,6 +15,7 @@
 #include <string>
 
 #include "inference/batch/BatchConfig.hpp"
+#include "inference/batch/BatchScheduler.hpp"
 #include "inference/batch/PendingRequest.hpp"
 #include "inference/common/Status.hpp"
 #include "inference/inference/InferenceResponse.hpp"
@@ -25,7 +26,6 @@ namespace inference {
 
 // 前向声明
 class ModelManager;
-class BatchScheduler;
 class ImagePreprocessor;
 class NMS;
 

@@ -43,9 +43,9 @@ RequestHandlers::RequestHandlers(InferenceService* service)
 
 void RequestHandlers::OnConnection(const muduo::net::TcpConnectionPtr& conn) {
     if (conn->connected()) {
-        LOG_INFO("Connection established from {}", conn->peerAddress().toHostPort());
+        LOG_INFO("Connection established from {}", conn->peerAddress().toIpPort());
     } else {
-        LOG_INFO("Connection closed from {}", conn->peerAddress().toHostPort());
+        LOG_INFO("Connection closed from {}", conn->peerAddress().toIpPort());
     }
 }
 
@@ -53,14 +53,14 @@ void RequestHandlers::OnMessage(const muduo::net::TcpConnectionPtr& conn,
                                  muduo::net::Buffer* buffer,
                                  muduo::Timestamp receiveTime) {
     // 读取所有可用数据
-    std::string data(buffer->peek(), buffer->readableSize());
+    std::string data(buffer->peek(), buffer->readableBytes());
     buffer->retrieveAll();
 
     // 解析 HTTP 请求
     HttpRequest request = ParseRequest(data);
     if (!request.parsed) {
         LOG_WARNING("Failed to parse HTTP request from {}",
-                    conn->peerAddress().toHostPort());
+                    conn->peerAddress().toIpPort());
         HttpResponse error = HandleError(400, "Bad Request");
         conn->send(error.Serialize());
         conn->shutdown();
@@ -69,7 +69,7 @@ void RequestHandlers::OnMessage(const muduo::net::TcpConnectionPtr& conn,
 
     LOG_DEBUG("HTTP {} {} from {}",
               request.method, request.path,
-              conn->peerAddress().toHostPort());
+              conn->peerAddress().toIpPort());
 
     // 路由处理
     HttpResponse response;
@@ -194,7 +194,7 @@ HttpResponse RequestHandlers::HandleInfer(const HttpRequest& request) {
         return HandleError(400, "Failed to decode image");
     }
 
-    LOG_INFO("Received inference request: image={}", image.size());
+    LOG_INFO("Received inference request: image={}x{}", image.cols, image.rows);
 
     // 构建推理请求
     uint64_t request_id = next_request_id_++;

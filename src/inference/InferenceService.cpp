@@ -62,13 +62,15 @@ Status InferenceService::Initialize() {
     // 6. 启动批调度器
     batch_scheduler_->Start();
 
-    // 7. 模型预热
+    // 7. 模型预热（仅 ONNX Runtime 可用时）
+#ifdef ONNXRUNTIME_FOUND
     for (const auto& model_config : config_.model_configs) {
         auto* session = model_manager_->GetSession(model_config.name);
         if (session) {
             session->Warmup();
         }
     }
+#endif
 
     LOG_INFO("InferenceService initialized successfully");
     LOG_INFO("  Models loaded: {}", model_manager_->ModelCount());

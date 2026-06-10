@@ -62,8 +62,7 @@ void BatchScheduler::Start() {
     }
 
     batching_thread_ = std::thread(&BatchScheduler::BatchingLoop, this);
-    LOG_INFO("BatchScheduler started (thread id: {})",
-             batching_thread_.get_id());
+    LOG_INFO("BatchScheduler started");
 }
 
 void BatchScheduler::Stop() {

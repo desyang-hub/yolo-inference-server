@@ -26,15 +26,15 @@ namespace inference {
  * 每个代码都有一个唯一的整数值，便于日志记录和调试。
  */
 enum class StatusCode : int {
-    kOk = 0,                // 成功
-    kInvalidArgs = 1,       // 参数错误
-    kNotFound = 2,          // 资源未找到（如模型文件）
-    kAlreadyExists = 3,     // 资源已存在
-    kUnavailable = 4,       // 服务不可用
-    kDataLoss = 5,          // 数据损坏
-    kDeadlineExceeded = 6,  // 超时
-    kResourceExhausted = 7, // 资源耗尽（如队列满）
-    kInternal = 8,          // 内部错误
+    Ok = 0,                // 成功
+    InvalidArgs = 1,       // 参数错误
+    NotFound = 2,          // 资源未找到（如模型文件）
+    AlreadyExists = 3,     // 资源已存在
+    Unavailable = 4,       // 服务不可用
+    DataLoss = 5,          // 数据损坏
+    DeadlineExceeded = 6,  // 超时
+    ResourceExhausted = 7, // 资源耗尽（如队列满）
+    Internal = 8,          // 内部错误
 };
 
 /**
@@ -45,7 +45,7 @@ enum class StatusCode : int {
  * 使用示例：
  *   Status result = model.Load("model.onnx");
  *   if (!result.ok()) {
- *       LOG_ERROR << "Failed to load model: " << result.ToString();
+ *       LOG_ERROR("Failed to load model: {}", result.ToString());
  *       return;
  *   }
  */
@@ -54,46 +54,46 @@ public:
     // 工厂方法 - 创建各种状态
 
     /** 创建成功状态 */
-    static Status Ok() { return Status{kStatusCode::kOk, {}}; }
+    static Status Ok() { return Status{StatusCode::Ok, {}}; }
 
     /** 创建错误状态 */
     static Status InvalidArgument(std::string_view msg) {
-        return Status{kStatusCode::kInvalidArgs, std::string{msg}};
+        return Status{StatusCode::InvalidArgs, std::string{msg}};
     }
 
     static Status NotFound(std::string_view msg) {
-        return Status{kStatusCode::kNotFound, std::string{msg}};
+        return Status{StatusCode::NotFound, std::string{msg}};
     }
 
     static Status AlreadyExists(std::string_view msg) {
-        return Status{kStatusCode::kAlreadyExists, std::string{msg}};
+        return Status{StatusCode::AlreadyExists, std::string{msg}};
     }
 
     static Status Unavailable(std::string_view msg) {
-        return Status{kStatusCode::kUnavailable, std::string{msg}};
+        return Status{StatusCode::Unavailable, std::string{msg}};
     }
 
     static Status DataLoss(std::string_view msg) {
-        return Status{kStatusCode::kDataLoss, std::string{msg}};
+        return Status{StatusCode::DataLoss, std::string{msg}};
     }
 
     static Status DeadlineExceeded(std::string_view msg) {
-        return Status{kStatusCode::kDeadlineExceeded, std::string{msg}};
+        return Status{StatusCode::DeadlineExceeded, std::string{msg}};
     }
 
     static Status ResourceExhausted(std::string_view msg) {
-        return Status{kStatusCode::kResourceExhausted, std::string{msg}};
+        return Status{StatusCode::ResourceExhausted, std::string{msg}};
     }
 
     static Status InternalError(std::string_view msg) {
-        return Status{kStatusCode::kInternal, std::string{msg}};
+        return Status{StatusCode::Internal, std::string{msg}};
     }
 
     /** 检查是否成功 */
-    bool ok() const { return code_ == kStatusCode::kOk; }
+    bool ok() const { return code_ == StatusCode::Ok; }
 
     /** 获取状态码 */
-    kStatusCode code() const { return code_; }
+    StatusCode code() const { return code_; }
 
     /** 获取错误消息 */
     std::string_view message() const { return message_; }
@@ -105,16 +105,16 @@ public:
     explicit operator bool() const { return ok(); }
 
 private:
-    Status(kStatusCode code, std::string message)
+    Status(StatusCode code, std::string message)
         : code_(code), message_(std::move(message)) {}
 
-    kStatusCode code_;
+    StatusCode code_;
     std::string message_;
 };
 
 /**
  * @brief 状态码转字符串
  */
-std::string StatusCodeToString(kStatusCode code);
+std::string StatusCodeToString(StatusCode code);
 
 } // namespace inference

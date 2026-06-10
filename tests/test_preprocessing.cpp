@@ -8,10 +8,22 @@
 
 #include "inference/preprocessing/ImagePreprocessor.hpp"
 #include "inference/preprocessing/NMS.hpp"
+#include "inference/common/Logger.hpp"
 #include "inference/common/Status.hpp"
 #include "inference/inference/InferenceResponse.hpp"
 
 using namespace inference;
+
+// 测试前初始化日志
+class TestEnvironment : public ::testing::Environment {
+public:
+    void SetUp() override {
+        inference::InitLogger("warning");  // 只显示 warning 以上
+    }
+    void TearDown() override {
+        inference::ShutdownLogger();
+    }
+};
 
 // ============================================================
 // ImagePreprocessor 测试
@@ -39,7 +51,7 @@ TEST_F(ImagePreprocessorTest, BasicPreprocess) {
     ASSERT_TRUE(status.ok());
     ASSERT_FALSE(result.empty());
     ASSERT_EQ(result.size(), cv::Size(640, 640));
-    ASSERT_EQ(result.type(), CV_32F);
+    ASSERT_EQ(result.type(), CV_32FC3); // 3-channel float32
 }
 
 TEST_F(ImagePreprocessorTest, LetterboxPreservesAspect) {
@@ -72,7 +84,7 @@ TEST_F(ImagePreprocessorTest, EmptyImage) {
     Status status = preprocessor->Preprocess(empty_image, result);
 
     ASSERT_FALSE(status.ok());
-    EXPECT_EQ(status.code(), Status::kStatusCode::kInvalidArgs);
+    EXPECT_EQ(status.code(), StatusCode::InvalidArgs);
 }
 
 // ============================================================
@@ -172,5 +184,6 @@ TEST_F(NMSTest, MaxDetections) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    ::testing::AddGlobalTestEnvironment(new TestEnvironment());
     return RUN_ALL_TESTS();
 }

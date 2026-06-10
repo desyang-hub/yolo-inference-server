@@ -36,11 +36,14 @@ struct Detection {
     int class_id = -1;           // 类别 ID
     std::string class_name;      // 类别名称
 
-    /** 转换为左上角 + 右下角格式 */
-    struct {
+    /** 边界框坐标（左上角 + 右下角） */
+    struct CornerBox {
         float x1, y1, x2, y2;
-    } ToCornerFormat() const {
-        return {
+    };
+
+    /** 转换为左上角 + 右下角格式 */
+    CornerBox ToCornerFormat() const {
+        return CornerBox{
             x_center - width / 2.0f,
             y_center - height / 2.0f,
             x_center + width / 2.0f,

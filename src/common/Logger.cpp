@@ -9,8 +9,8 @@
 namespace inference {
 
 namespace {
-    // 全局日志器指针
-    spdlog::logger* g_logger = nullptr;
+    // 全局日志器 shared_ptr
+    std::shared_ptr<spdlog::logger> g_logger = nullptr;
 }
 
 void InitLogger(const std::string& log_level,
@@ -20,6 +20,7 @@ void InitLogger(const std::string& log_level,
     try {
         // 创建控制台输出 sink（带彩色）
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_st>();
+        console_sink->set_level(spdlog::level::info);
 
         // 如果指定了日志文件，添加文件 sink（按大小轮转）
         std::vector<spdlog::sink_ptr> sinks{console_sink};
@@ -35,21 +36,15 @@ void InitLogger(const std::string& log_level,
         // 设置日志级别
         SetLogLevel(log_level);
 
-        // 设置日志格式：[时间] [级别] [文件:行] 消息
-        g_logger->set_pattern("[%H:%M:%S %z] [%^---%L---%$] %v");
+        // 设置日志格式
+        g_logger->set_pattern("[%H:%M:%S] [%^---%L---%$] %v");
 
-        // 设置为默认日志器（spdlog 全局）
-        spdlog::set_default(g_logger);
-
-        // 同步刷新（开发时方便调试，生产环境可以改为异步）
+        // 同步刷新（开发时方便调试）
         g_logger->flush_on(spdlog::level::info);
 
-        LOG_INFO("Logger initialized. Level: {}, File: {}",
-                 log_level, log_file.empty() ? "console only" : log_file);
-
     } catch (const spdlog::spdlog_ex& ex) {
-        // 日志初始化失败时，使用标准错误输出
         fprintf(stderr, "Logger initialization failed: %s\n", ex.what());
+        // 创建一个简单的 fallback 日志器
         g_logger = spdlog::stderr_color_mt("fallback");
     }
 }
@@ -57,15 +52,24 @@ void InitLogger(const std::string& log_level,
 spdlog::logger* GetLogger() {
     if (!g_logger) {
         // 如果未初始化，创建一个简单的控制台日志器
-        InitLogger("info", "");
+        try {
+            g_logger = spdlog::stderr_color_mt("default");
+            g_logger->set_level(spdlog::level::info);
+        } catch (...) {
+            // 如果还是失败，返回一个静态日志器
+            static std::shared_ptr<spdlog::sinks::stdout_color_sink_st> sink =
+                std::make_shared<spdlog::sinks::stdout_color_sink_st>();
+            static spdlog::logger logger("static", sink);
+            logger.set_level(spdlog::level::info);
+            return &logger;
+        }
     }
-    return g_logger;
+    return g_logger.get();
 }
 
 void SetLogLevel(const std::string& level) {
     spdlog::level::level_enum lvl = spdlog::level::info;
 
-    // 将字符串转换为 spdlog 日志级别
     if (level == "debug") {
         lvl = spdlog::level::debug;
     } else if (level == "info") {
@@ -81,7 +85,6 @@ void SetLogLevel(const std::string& level) {
     if (g_logger) {
         g_logger->set_level(lvl);
     }
-    spdlog::set_level(lvl);
 }
 
 void ShutdownLogger() {

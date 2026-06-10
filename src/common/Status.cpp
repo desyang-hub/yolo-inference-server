@@ -7,17 +7,17 @@
 
 namespace inference {
 
-std::string StatusCodeToString(Status::kStatusCode code) {
+std::string StatusCodeToString(StatusCode code) {
     switch (code) {
-        case Status::kStatusCode::kOk: return "OK";
-        case Status::kStatusCode::kInvalidArgs: return "Invalid Argument";
-        case Status::kStatusCode::kNotFound: return "Not Found";
-        case Status::kStatusCode::kAlreadyExists: return "Already Exists";
-        case Status::kStatusCode::kUnavailable: return "Unavailable";
-        case Status::kStatusCode::kDataLoss: return "Data Loss";
-        case Status::kStatusCode::kDeadlineExceeded: return "Deadline Exceeded";
-        case Status::kStatusCode::kResourceExhausted: return "Resource Exhausted";
-        case Status::kStatusCode::kInternal: return "Internal Error";
+        case StatusCode::Ok: return "OK";
+        case StatusCode::InvalidArgs: return "Invalid Argument";
+        case StatusCode::NotFound: return "Not Found";
+        case StatusCode::AlreadyExists: return "Already Exists";
+        case StatusCode::Unavailable: return "Unavailable";
+        case StatusCode::DataLoss: return "Data Loss";
+        case StatusCode::DeadlineExceeded: return "Deadline Exceeded";
+        case StatusCode::ResourceExhausted: return "Resource Exhausted";
+        case StatusCode::Internal: return "Internal Error";
         default: return "Unknown Error";
     }
 }

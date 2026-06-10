@@ -39,9 +39,10 @@ Status ImagePreprocessor::Preprocess(const cv::Mat& input, cv::Mat& output) {
 
     // 步骤 3: 转换为 float32 并归一化
     if (config_.scale_to_zero_one) {
-        scaled.convertTo(output, CV_32F, 1.0 / 255.0);
+        // alpha=1/255, beta=0: output = input * alpha + beta
+        scaled.convertTo(output, CV_32F, 1.0 / 255.0, 0.0);
     } else {
-        scaled.convertTo(output, CV_32F);
+        scaled.convertTo(output, CV_32F, 1.0, 0.0);
     }
 
     // 步骤 4: 均值和标准差归一化（如果配置了）
