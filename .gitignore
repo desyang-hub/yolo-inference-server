@@ -1,0 +1,54 @@
+# Build
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
+# Compiled
+*.out
+inference_server
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.orig
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Models
+models/*.onnx
+models/*.pt
+models/*.pth
+!models/.gitkeep
+
+# Test data
+test_images/
+test_results/
+*.jpg
+*.png
+*.jpeg
+*.bmp
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
