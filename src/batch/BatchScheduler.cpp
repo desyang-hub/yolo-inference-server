@@ -49,13 +49,10 @@ void BatchScheduler::Initialize(ModelSession* session,
         }
         input_tensor_pool_.resize(input_size);
 
-        // 创建内存信息对象
-        memory_info_ = std::make_unique<Ort::MemoryInfo>(
-            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)
-        );
-
         current_batch_shape_.resize(input_shape.size());
         std::copy(input_shape.begin(), input_shape.end(), current_batch_shape_.begin());
+
+        initialized_ = true;
 
         LOG_INFO("BatchScheduler ONNX runtime initialized: input_shape={}",
                  fmt::join(input_shape, "x"));
@@ -231,7 +228,7 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
     double inference_time_ms = 0.0;
 
 #ifdef ONNXRUNTIME_FOUND
-    if (session_ && session_->IsLoaded() && memory_info_) {
+    if (session_ && session_->IsLoaded() && initialized_) {
         auto t0 = std::chrono::steady_clock::now();
 
         // 2.1: 准备输入数据 - 将预处理的图像合并为 batch Tensor
@@ -270,15 +267,23 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
             }
         }
 
-        // 创建 Ort::Value 输入张量
+        // 创建 Ort::Value 输入张量 - 使用 AllocatorWithDefaultOptions
         std::vector<Ort::Value> ort_inputs;
-        ort_inputs.push_back(Ort::Value::CreateTensor(
-            *memory_info_,
-            input_data,
-            input_tensor_size,
+
+        // 先创建一个空的 tensor 用于分配内存
+        auto value = Ort::Value::CreateTensor<float>(
+            Ort::AllocatorWithDefaultOptions{},  // 使用默认 allocator
             current_batch_shape_.data(),
-            current_batch_shape_.size()
-        ));
+            static_cast<size_t>(current_batch_shape_.size())
+        );
+
+        // 获取可修改的数据指针
+        float* data = value.GetTensorMutableData<float>();
+
+        // 复制预处理数据到 tensor
+        std::memcpy(data, input_data, input_tensor_size * sizeof(float));
+
+        ort_inputs.push_back(std::move(value));
 
         // 2.2: 执行推理 - 准备输入输出名称指针
         std::vector<std::string> input_names_str = session_->GetInputNames();

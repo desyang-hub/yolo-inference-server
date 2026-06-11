@@ -17,6 +17,66 @@
 // nlohmann/json
 #include <nlohmann/json.hpp>
 
+// Base64 解码表
+static const std::string base64_chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * @brief Base64 解码
+ */
+static std::string base64_decode(const std::string& encoded) {
+    std::string decoded;
+
+    for (size_t i = 0; i < encoded.size(); ++i) {
+        char c = encoded[i];
+        if (c == '=' || c == '\n' || c == '\r' || c == ' ') {
+            continue;
+        }
+
+        auto found = base64_chars.find(c);
+        if (found == std::string::npos) {
+            continue; // 跳过无效字符
+        }
+
+        unsigned int triplet = (found << 18);
+
+        if (++i < encoded.size()) {
+            c = encoded[i];
+            if (c == '=') {
+                triplet <<= 6;
+            } else {
+                found = base64_chars.find(c);
+                triplet |= (found << 12);
+                if (++i < encoded.size()) {
+                    c = encoded[i];
+                    if (c == '=') {
+                        triplet <<= 6;
+                    } else {
+                        found = base64_chars.find(c);
+                        triplet |= (found << 6);
+                        if (++i < encoded.size()) {
+                            c = encoded[i];
+                            if (c != '=') {
+                                found = base64_chars.find(c);
+                                triplet |= found;
+                            }
+                        }
+                    }
+                    decoded.push_back(static_cast<char>((triplet >> 16) & 0xFF));
+                    decoded.push_back(static_cast<char>((triplet >> 8) & 0xFF));
+                } else {
+                    decoded.push_back(static_cast<char>((triplet >> 16) & 0xFF));
+                    decoded.push_back(static_cast<char>((triplet >> 8) & 0xFF));
+                }
+            }
+        } else {
+            decoded.push_back(static_cast<char>((triplet >> 16) & 0xFF));
+        }
+    }
+
+    return decoded;
+}
+
 namespace inference {
 
 // ============================================================
@@ -182,7 +242,18 @@ cv::Mat RequestHandlers::ExtractImage(const std::string& body,
     }
 
     // 情况 3: JSON body 中包含 base64 编码的图像
-    // TODO: 实现 JSON 解析和 base64 解码
+    // 尝试解析 JSON 中的 image_base64 字段
+    try {
+        auto json_body = nlohmann::json::parse(body);
+        if (json_body.find("image_base64") != json_body.end()) {
+            std::string encoded = json_body["image_base64"];
+            std::string decoded = base64_decode(encoded);
+            std::vector<uint8_t> data(decoded.begin(), decoded.end());
+            return cv::imdecode(cv::Mat(data), cv::IMREAD_COLOR);
+        }
+    } catch (...) {
+        // JSON 解析失败，继续尝试其他格式
+    }
 
     return cv::Mat();
 }

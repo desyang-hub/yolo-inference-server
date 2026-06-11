@@ -172,9 +172,11 @@ private:
 
 #ifdef ONNXRUNTIME_FOUND
     // ONNX 推理环境缓存
-    std::unique_ptr<Ort::MemoryInfo> memory_info_;  // CPU 内存信息
     std::vector<float> input_tensor_pool_;          // 复用输入缓冲区
     std::vector<int64_t> current_batch_shape_;      // 当前 batch 的形状
+
+    // 是否已初始化
+    bool initialized_ = false;
 #endif
 };
 
