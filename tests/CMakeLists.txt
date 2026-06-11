@@ -41,6 +41,7 @@ gtest_discover_tests(test_preprocessing)
 if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
     add_executable(test_batch_scheduler
         ../src/batch/BatchScheduler.cpp
+        ../src/model/ModelSession.cpp
         ../src/preprocessing/ImagePreprocessor.cpp
         ../src/preprocessing/NMS.cpp
         ../src/common/Logger.cpp

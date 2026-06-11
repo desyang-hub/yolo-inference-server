@@ -52,16 +52,16 @@ namespace inference {
  */
 struct BatchConfig {
     /** 最大批大小 */
-    size_t max_batch_size;
+    size_t max_batch_size = 8;
 
     /** 等待超时（达到此时间即使未满 batch 也触发推理） */
-    std::chrono::milliseconds timeout;
+    std::chrono::milliseconds timeout{10};
 
     /** 最小额批大小（小于此值不触发，除非超时） */
-    size_t min_batch_size;
+    size_t min_batch_size = 1;
 
     /** 是否启用动态批处理 */
-    bool enabled;
+    bool enabled = true;
 
     /**
      * @brief 验证配置参数

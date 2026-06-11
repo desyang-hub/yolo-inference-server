@@ -59,6 +59,11 @@
 #include "inference/inference/InferenceRequest.hpp"
 #include "inference/inference/InferenceResponse.hpp"
 
+// ONNX Runtime C++ API 前向声明
+#ifdef ONNXRUNTIME_FOUND
+#include <onnxruntime_cxx_api.h>
+#endif
+
 namespace inference {
 
 // 前向声明
@@ -164,6 +169,13 @@ private:
     // 统计
     mutable std::mutex stats_mutex_;
     Stats stats_;
+
+#ifdef ONNXRUNTIME_FOUND
+    // ONNX 推理环境缓存
+    std::unique_ptr<Ort::MemoryInfo> memory_info_;  // CPU 内存信息
+    std::vector<float> input_tensor_pool_;          // 复用输入缓冲区
+    std::vector<int64_t> current_batch_shape_;      // 当前 batch 的形状
+#endif
 };
 
 } // namespace inference

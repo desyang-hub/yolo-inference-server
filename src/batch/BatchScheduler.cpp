@@ -36,6 +36,32 @@ void BatchScheduler::Initialize(ModelSession* session,
     session_ = session;
     preprocessor_ = preprocessor;
     postprocessor_ = postprocessor;
+
+#ifdef ONNXRUNTIME_FOUND
+    // 初始化 ONNX 推理环境
+    if (session_ && session_->IsLoaded()) {
+        auto input_shape = session_->GetInputShape();
+
+        // 计算输入 tensor 大小：batch × 3 × H × W
+        size_t input_size = 1;
+        for (auto dim : input_shape) {
+            input_size *= dim;
+        }
+        input_tensor_pool_.resize(input_size);
+
+        // 创建内存信息对象
+        memory_info_ = std::make_unique<Ort::MemoryInfo>(
+            Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)
+        );
+
+        current_batch_shape_.resize(input_shape.size());
+        std::copy(input_shape.begin(), input_shape.end(), current_batch_shape_.begin());
+
+        LOG_INFO("BatchScheduler ONNX runtime initialized: input_shape={}",
+                 fmt::join(input_shape, "x"));
+    }
+#endif
+
     LOG_INFO("BatchScheduler initialized with model and processors");
 }
 
@@ -169,12 +195,10 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
     // 步骤 1: 预处理所有图像
     // ========================================
     double preprocessing_time_ms = 0;
+    std::vector<cv::Mat> preprocessed_images;
+    preprocessed_images.reserve(batch.size());
     {
         auto t0 = std::chrono::steady_clock::now();
-
-        std::vector<cv::Mat> preprocessed_images;
-        preprocessed_images.reserve(batch.size());
-
         for (auto& req : batch) {
             // 记录进入 batch 的时间
             req.batch_time = std::chrono::steady_clock::now();
@@ -202,30 +226,177 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
     // ========================================
     // 步骤 2: 构建输入 Tensor 并推理
     // ========================================
-    // TODO: 将预处理的图像合并为一个 batch Tensor
-    // 这需要 ONNX Runtime API，在后续 Phase 实现
+    std::vector<Status> batch_statuses(batch.size(), Status::Ok());
+    std::vector<std::vector<Detection>> batch_detections(batch.size());
+    double inference_time_ms = 0.0;
 
-    double inference_time_ms = 0;
-    {
+#ifdef ONNXRUNTIME_FOUND
+    if (session_ && session_->IsLoaded() && memory_info_) {
         auto t0 = std::chrono::steady_clock::now();
 
-        // TODO: 调用 session_->Run() 进行推理
-        // 此处为框架代码，实际推理在 Phase 3 完善
+        // 2.1: 准备输入数据 - 将预处理的图像合并为 batch Tensor
+        current_batch_shape_[0] = static_cast<int64_t>(batch.size());  // batch_size
+
+        size_t input_tensor_size = 1;
+        for (auto dim : current_batch_shape_) {
+            input_tensor_size *= dim;
+        }
+        input_tensor_pool_.resize(input_tensor_size);
+
+        // 将预处理的图像复制到输入 tensor
+        // 预处理后的图像格式：HWC (height x width x 3), CV_32F, 归一化到 0-1
+        // 需要转换为 CHW 格式用于 ONNX 输入 [batch, 3, H, W]
+        float* input_data = input_tensor_pool_.data();
+        size_t img_h = preprocessed_images[0].rows;
+        size_t img_w = preprocessed_images[0].cols;
+        size_t img_hw = img_h * img_w;
+
+        for (size_t i = 0; i < batch.size(); ++i) {
+            const auto& img = preprocessed_images[i];
+            size_t img_offset = i * 3 * img_hw;
+            const float* hwc = img.ptr<float>();
+
+            // HWC -> CHW 转换
+            for (size_t y = 0; y < img_h; ++y) {
+                for (size_t x = 0; x < img_w; ++x) {
+                    size_t hw = y * img_w + x;
+                    // Channel 0
+                    input_data[img_offset + 0 * img_hw + hw] = hwc[hw * 3 + 0];
+                    // Channel 1
+                    input_data[img_offset + 1 * img_hw + hw] = hwc[hw * 3 + 1];
+                    // Channel 2
+                    input_data[img_offset + 2 * img_hw + hw] = hwc[hw * 3 + 2];
+                }
+            }
+        }
+
+        // 创建 Ort::Value 输入张量
+        std::vector<Ort::Value> ort_inputs;
+        ort_inputs.push_back(Ort::Value::CreateTensor(
+            *memory_info_,
+            input_data,
+            input_tensor_size,
+            current_batch_shape_.data(),
+            current_batch_shape_.size()
+        ));
+
+        // 2.2: 执行推理 - 准备输入输出名称指针
+        std::vector<std::string> input_names_str = session_->GetInputNames();
+        std::vector<std::string> output_names_str = session_->GetOutputNames();
+        std::vector<const char*> input_names;
+        std::vector<const char*> output_names;
+        for (const auto& name : input_names_str) {
+            input_names.push_back(name.c_str());
+        }
+        for (const auto& name : output_names_str) {
+            output_names.push_back(name.c_str());
+        }
+
+        std::vector<Ort::Value> ort_outputs;
+        auto status = session_->Run(input_names, ort_inputs, output_names, ort_outputs);
 
         auto t1 = std::chrono::steady_clock::now();
         inference_time_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        if (status.ok() && !ort_outputs.empty()) {
+            // 2.3: 解析推理结果
+            auto& output_tensor = ort_outputs[0];
+            auto type_info = output_tensor.GetTensorTypeAndShapeInfo();
+            auto shape = type_info.GetShape();
+
+            // YOLOv8 输出格式：[batch, 84, 8400] 或 [batch, 25200, 84]
+            // 84 = 4 (box) + 80 (classes)
+            float* output_data = output_tensor.GetTensorMutableData<float>();
+
+            // 解析 batch 中每个请求的输出
+            int64_t num_anchors = shape.size() >= 3 ? shape[2] : 8400;
+            int64_t num_channels = shape.size() >= 2 ? shape[1] : 84;
+
+            for (size_t batch_idx = 0; batch_idx < batch.size(); ++batch_idx) {
+                float* batch_output = output_data + batch_idx * num_anchors * num_channels;
+                std::vector<Detection> raw_detections;
+
+                // 解析每个 anchor 的预测
+                for (int64_t anchor_idx = 0; anchor_idx < num_anchors; ++anchor_idx) {
+                    float* det = batch_output + anchor_idx * num_channels;
+
+                    // 提取边界框（归一化坐标：x_center, y_center, width, height）
+                    float x_center = det[0];
+                    float y_center = det[1];
+                    float width = det[2];
+                    float height = det[3];
+
+                    // 提取最高置信度类别
+                    float max_conf = 0.0f;
+                    int class_id = -1;
+                    for (int c = 0; c < 80; ++c) {
+                        float conf = det[4 + c];
+                        if (conf > max_conf) {
+                            max_conf = conf;
+                            class_id = c;
+                        }
+                    }
+
+                    // 应用置信度阈值（默认 0.25，与 YOLOv8 一致）
+                    if (max_conf > 0.25f) {
+                        Detection det_result;
+                        det_result.x_center = x_center;
+                        det_result.y_center = y_center;
+                        det_result.width = width;
+                        det_result.height = height;
+                        det_result.confidence = max_conf;
+                        det_result.class_id = class_id;
+                        if (class_id >= 0 && class_id < static_cast<int>(CLASS_NAMES.size())) {
+                            det_result.class_name = CLASS_NAMES[class_id];
+                        }
+                        raw_detections.push_back(det_result);
+                    }
+                }
+
+                // 2.4: 应用 NMS 后处理
+                if (!raw_detections.empty() && postprocessor_) {
+                    batch_detections[batch_idx] = postprocessor_->Process(raw_detections);
+                }
+
+                LOG_DEBUG("Batch[{}] request[{}] raw detections: {}, after NMS: {}",
+                         batch.size(), batch_idx, raw_detections.size(),
+                         batch_detections[batch_idx].size());
+            }
+
+            if (!status.ok()) {
+                for (size_t i = 0; i < batch.size(); ++i) {
+                    batch_statuses[i] = status;
+                }
+            }
+        } else {
+            LOG_ERROR("Inference failed or no outputs: {}", status.ToString());
+            for (size_t i = 0; i < batch.size(); ++i) {
+                batch_statuses[i] = status;
+            }
+        }
+    } else {
+        LOG_WARNING("ONNX runtime not available or model not loaded");
+        inference_time_ms = 0.0;
+        for (size_t i = 0; i < batch.size(); ++i) {
+            batch_statuses[i] = Status::Unavailable("Model not loaded");
+        }
     }
+#else
+    // ONNX Runtime 未安装时模拟推理
+    LOG_WARNING("ONNX Runtime not available - simulating inference");
+    inference_time_ms = 0.0;
+    for (size_t i = 0; i < batch.size(); ++i) {
+        batch_statuses[i] = Status::Unavailable("ONNX Runtime not found");
+    }
+#endif
 
     // ========================================
-    // 步骤 3: 后处理（NMS）
+    // 步骤 3: 后处理（NMS）- 已在步骤 2 中完成
     // ========================================
-    double postprocessing_time_ms = 0;
-    {
+    double postprocessing_time_ms = 0.0;
+    if (!batch_detections[0].empty()) {
         auto t0 = std::chrono::steady_clock::now();
-
-        // TODO: 对推理结果进行 NMS 后处理
-        // 在 Phase 4 实现
-
+        // NMS 已在上面执行
         auto t1 = std::chrono::steady_clock::now();
         postprocessing_time_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     }
@@ -233,20 +404,26 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
     // ========================================
     // 步骤 4: 返回结果
     // ========================================
-    for (auto& req : batch) {
-        req.complete_time = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < batch.size(); ++i) {
+        batch[i].complete_time = std::chrono::steady_clock::now();
 
         InferenceResponse response;
-        response.request_id = req.id;
+        response.request_id = batch[i].id;
         response.inference_time_ms = inference_time_ms;
         response.preprocessing_time_ms = preprocessing_time_ms;
         response.postprocessing_time_ms = postprocessing_time_ms;
-        response.status = Status::Ok();
 
-        // TODO: 填充实际的检测结果
-        // 在 Phase 4 实现
+        // 填充检测结果
+        response.detections = std::move(batch_detections[i]);
 
-        req.promise.set_value(std::move(response));
+        // 处理错误状态
+        if (!batch_statuses[i].ok()) {
+            response.status = batch_statuses[i];
+        } else {
+            response.status = Status::Ok();
+        }
+
+        batch[i].promise.set_value(std::move(response));
     }
 
     auto batch_end = std::chrono::steady_clock::now();

@@ -5,6 +5,7 @@
 
 #include "inference/preprocessing/NMS.hpp"
 #include "inference/common/Logger.hpp"
+#include "inference/inference/InferenceResponse.hpp"
 
 #include <algorithm>
 #include <cmath>
