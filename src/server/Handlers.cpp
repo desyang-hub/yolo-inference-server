@@ -51,7 +51,7 @@ void RequestHandlers::OnConnection(const muduo::net::TcpConnectionPtr& conn) {
 
 void RequestHandlers::OnMessage(const muduo::net::TcpConnectionPtr& conn,
                                  muduo::net::Buffer* buffer,
-                                 muduo::Timestamp receiveTime) {
+                                 muduo::Timestamp) {
     // 读取所有可用数据
     std::string data(buffer->peek(), buffer->readableBytes());
     buffer->retrieveAll();

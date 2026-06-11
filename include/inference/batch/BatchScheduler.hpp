@@ -77,7 +77,7 @@ class NMS;
  */
 class BatchScheduler {
 public:
-    explicit BatchScheduler(const BatchConfig& config = BatchConfig{});
+    explicit BatchScheduler(const BatchConfig& config = BatchConfig::Balanced());
     ~BatchScheduler();
 
     // 禁止拷贝

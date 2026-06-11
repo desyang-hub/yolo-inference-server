@@ -45,22 +45,23 @@
 #include <cstddef>
 
 namespace inference {
-
+ 
+// c++ 11 起，对于结构体，如果成员变量有默认初始化，则无法使用{}进行构造
 /**
  * @brief 动态批处理配置
  */
 struct BatchConfig {
     /** 最大批大小 */
-    size_t max_batch_size = 8;
+    size_t max_batch_size;
 
     /** 等待超时（达到此时间即使未满 batch 也触发推理） */
-    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    std::chrono::milliseconds timeout;
 
     /** 最小额批大小（小于此值不触发，除非超时） */
-    size_t min_batch_size = 1;
+    size_t min_batch_size;
 
     /** 是否启用动态批处理 */
-    bool enabled = true;
+    bool enabled;
 
     /**
      * @brief 验证配置参数

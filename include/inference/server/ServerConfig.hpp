@@ -18,6 +18,8 @@
 #include "inference/batch/BatchConfig.hpp"
 #include "inference/model/ModelConfig.hpp"
 
+#include "inference/common/Logger.hpp"
+
 namespace inference {
 
 /**
@@ -34,7 +36,7 @@ struct ServerConfig {
     std::string log_file;
 
     // 批处理配置
-    BatchConfig batch_config;
+    BatchConfig batch_config = BatchConfig::Balanced();
 
     // 模型配置
     std::vector<ModelConfig> model_configs;
@@ -43,6 +45,7 @@ struct ServerConfig {
      * @brief 验证配置
      */
     bool IsValid() const {
+        LOG_INFO("{} {} {} {}", port > 0, port < 65536, batch_config.IsValid(), !model_configs.empty());
         return port > 0 && port < 65536 &&
                batch_config.IsValid() &&
                !model_configs.empty();

@@ -33,8 +33,7 @@ message(STATUS "  muduo found (system libraries)")
 
 # 3. ONNX Runtime (推理引擎)
 # 初始化为空，避免 CMake 错误
-set(ONNXRUNTIME_INCLUDE_DIR "")
-set(ONNXRUNTIME_LIBRARY "")
+set(ONNX_RUNTIME_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime)
 
 # 方式 A: 使用系统安装的 ONNX Runtime
 find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_cxx_api.h onnxruntime/core/session/onnxruntime_cxx_api.h)
@@ -55,13 +54,20 @@ else()
             PATHS ${ONNX_RUNTIME_ROOT}
             PATH_SUFFIXES lib
             NO_DEFAULT_PATH)
-    endif()
+        message(STATUS "ONNX Runtime Include: ${ONNXRUNTIME_INCLUDE_DIR}")
+        message(STATUS "ONNX Runtime Library: ${ONNXRUNTIME_LIBRARY}")
 
-    if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
-        message(STATUS "  ONNX Runtime found (custom: ${ONNXRUNTIME_LIBRARY})")
+        if (ONNXRUNTIME_INCLUDE_DIR)
+            
+        endif()
+
     else()
-        message(WARNING "ONNX Runtime NOT found. Set ONNX_RUNTIME_ROOT or install it.")
-        message(WARNING "See docs/install_dependencies.sh for installation instructions.")
+        if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+            message(STATUS "  ONNX Runtime found (custom: ${ONNXRUNTIME_LIBRARY})")
+        else()
+            message(WARNING "ONNX Runtime NOT found. Set ONNX_RUNTIME_ROOT or install it.")
+            message(WARNING "See docs/install_dependencies.sh for installation instructions.")
+        endif()
     endif()
 endif()
 
@@ -185,6 +191,9 @@ endif()
 if(TARGET nlohmann_json::nlohmann_json)
     target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 endif()
+
+# target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=address -fno-omit-frame-pointer -O1)
+# target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=address)
 
 # ============================================================
 # 安装规则

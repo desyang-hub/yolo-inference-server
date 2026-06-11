@@ -90,11 +90,13 @@ Status ModelSession::ConfigureSessionOptions() {
         LOG_INFO("  Inter-op threads: {}", config_.inter_op_num_threads);
     }
 
-    // 设置执行模式为并行（可以利用多核）
-    session_options_.SetExecutionMode(Ort::ExecutionMode::kParallel);
+    // 设置执行模式为并行 (可以利用多核)
+    // ONNX Runtime 1.18: 使用 ExecutionMode 枚举
+    session_options_.SetExecutionMode(ORT_PARALLEL);
 
-    // 启用时序优化（优化计算图执行顺序）
-    session_options_.SetOptimizationLevel(ORT_ENABLE_ALL);
+    // 启用图优化 (优化计算图执行顺序)
+    // ONNX Runtime 1.18: SetGraphOptimizationLevel 替代 SetOptimizationLevel
+    session_options_.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
     return Status::Ok();
 }
@@ -106,9 +108,12 @@ Status ModelSession::GetModelInfo() {
         input_names_.resize(num_inputs);
         input_shape_.clear();
 
+        Ort::AllocatorWithDefaultOptions allocator;
+
         for (size_t i = 0; i < num_inputs; ++i) {
-            input_names_[i] = session_->GetInputNameAllocated(i,
-                Ort::MemoryInfo::DefaultCpu()).get();
+            // ONNX Runtime 1.18: 使用 GetInputNameAllocated 获取输入名称
+            // 参数：index 和 allocator 指针 (nullptr 表示使用默认分配器)
+            input_names_[i] = session_->GetInputNameAllocated(i, allocator).get();
 
             // 获取输入形状
             auto type_info = session_->GetInputTypeInfo(i);
@@ -122,8 +127,9 @@ Status ModelSession::GetModelInfo() {
         output_shape_.clear();
 
         for (size_t i = 0; i < num_outputs; ++i) {
-            output_names_[i] = session_->GetOutputNameAllocated(i,
-                Ort::MemoryInfo::DefaultCpu()).get();
+            // ONNX Runtime 1.18: 使用 GetOutputNameAllocated 获取输出名称
+            // 参数：index 和 allocator 指针 (nullptr 表示使用默认分配器)
+            output_names_[i] = session_->GetOutputNameAllocated(i, allocator).get();
 
             auto type_info = session_->GetOutputTypeInfo(i);
             auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
@@ -151,6 +157,8 @@ Status ModelSession::Run(const std::vector<const char*>& input_names,
         outputs = session_->Run(Ort::RunOptions{nullptr},
                                  input_names.data(), inputs.data(), inputs.size(),
                                  output_names.data(), output_names.size());
+
+        LOG_INFO("output size: {}", outputs.size());
         return Status::Ok();
 
     } catch (const Ort::Exception& e) {
@@ -166,7 +174,10 @@ Status ModelSession::Warmup() {
 
     LOG_INFO("Warming up model...");
 
-    auto memory_info = Ort::MemoryInfo::DefaultCpu();
+    // ONNX Runtime 1.18: 使用 CreateCpu 创建内存信息对象
+    auto memory_info = Ort::MemoryInfo::CreateCpu(
+        OrtArenaAllocator,  // OrtAllocatorType::OrtArenaAllocator
+        OrtMemTypeDefault); // OrtMemType::OrtMemTypeDefault
 
     std::vector<Ort::Value> inputs;
     for (size_t i = 0; i < input_names_.size(); ++i) {
@@ -186,9 +197,18 @@ Status ModelSession::Warmup() {
     }
 
     std::vector<Ort::Value> outputs;
-    auto status = Run(
-        const_cast<std::vector<const char*>>(input_names_).data(), inputs,
-        const_cast<std::vector<const char*>>(output_names_).data(), outputs);
+
+    // 修复：准备输入输出名称数组 (转换为 const char* 格式)
+    std::vector<const char*> input_name_ptrs;
+    std::vector<const char*> output_name_ptrs;
+    for (const auto& name : input_names_) {
+        input_name_ptrs.push_back(name.c_str());
+    }
+    for (const auto& name : output_names_) {
+        output_name_ptrs.push_back(name.c_str());
+    }
+
+    auto status = Run(input_name_ptrs, inputs, output_name_ptrs, outputs);
 
     if (status.ok()) {
         LOG_INFO("Model warmup completed");

@@ -20,7 +20,9 @@
 #pragma once
 
 #include "Status.hpp"
+#include "inference/InferenceResponse.hpp"
 #include <utility>
+#include <vector>
 
 namespace inference {
 
