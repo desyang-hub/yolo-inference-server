@@ -128,6 +128,7 @@ set(SOURCES
     src/batch/BatchScheduler.cpp
     src/server/InferenceServer.cpp
     src/server/Handlers.cpp
+    src/server/HttpContext.cpp
     src/preprocessing/ImagePreprocessor.cpp
     src/preprocessing/NMS.cpp
     src/main.cpp
