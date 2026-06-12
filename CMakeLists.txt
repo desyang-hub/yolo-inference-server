@@ -113,6 +113,9 @@ endif()
 find_package(Threads REQUIRED)
 message(STATUS "  Threading support enabled")
 
+# 7. httplib
+set(HTTPLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/httplib/)
+
 # ============================================================
 # 源码收集
 # ============================================================
@@ -164,6 +167,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${NLOHMANN_JSON_INCLUDE_DIR}
     ${SPDLOG_INCLUDE_DIR}
+    ${HTTPLIB_INCLUDE_DIR}
 )
 
 # ONNX Runtime 包含目录（如果找到）
@@ -194,6 +198,9 @@ endif()
 
 # target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=address -fno-omit-frame-pointer -O1)
 # target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=address)
+
+# target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+# target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=thread)
 
 # ============================================================
 # 安装规则

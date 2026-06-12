@@ -164,6 +164,10 @@ Status ModelSession::Run(const std::vector<const char*>& input_names,
     } catch (const Ort::Exception& e) {
         LOG_ERROR("Inference failed: {}", e.what());
         return Status::InternalError(std::string("Inference error: ") + e.what());
+    } catch (...) {
+        // 4. 捕获所有未知异常
+        LOG_ERROR("Unknown fatal exception during inference!");
+        return Status::InternalError("Unknown fatal exception");
     }
 }
 

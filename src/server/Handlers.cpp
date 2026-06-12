@@ -17,6 +17,9 @@
 // nlohmann/json
 #include <nlohmann/json.hpp>
 
+// httplib
+#include <httplib.h>
+
 // Base64 解码表
 static const std::string base64_chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -75,6 +78,58 @@ static std::string base64_decode(const std::string& encoded) {
     }
 
     return decoded;
+}
+
+
+static cv::Mat parse_multipart_image(const std::string& content_type, const std::string& body) {
+    // 1. 安全提取 boundary（处理可能存在的引号和后续参数）
+    auto b_pos = content_type.find("boundary=");
+    LOG_INFO("step 1");
+    if (b_pos == std::string::npos) return {};
+    
+    std::string boundary = content_type.substr(b_pos + 9);
+    // 去除可能存在的双引号
+    if (!boundary.empty() && boundary.front() == '"') boundary.erase(0, 1);
+    if (!boundary.empty() && boundary.back() == '"') boundary.pop_back();
+    // 截断后续参数（如 ; charset=xxx）
+    auto semi_pos = boundary.find(';');
+    if (semi_pos != std::string::npos) boundary = boundary.substr(0, semi_pos);
+    
+    std::string delimiter = "--" + boundary;
+
+    // 2. 定位第一个 part 的开始
+    auto part_start = body.find(delimiter);
+    LOG_INFO("step 2");
+    if (part_start == std::string::npos) return {};
+    
+    // 跳过 delimiter 本身和紧随其后的 \r\n
+    part_start += delimiter.size() + 2; 
+
+    // 3. 寻找 Header 与 Binary Data 的分界线（严格使用 \r\n\r\n）
+    auto header_end = body.find("\r\n\r\n", part_start);
+    LOG_INFO("step 3");
+    if (header_end == std::string::npos) return {};
+    
+    size_t data_start = header_end + 4;
+
+    // 4. 寻找当前 part 的结束 boundary（前面必有 \r\n）
+    std::string end_delimiter = "\r\n" + delimiter;
+    auto data_end = body.find(end_delimiter, data_start);
+    if (data_end == std::string::npos) {
+        // 兼容没有结束 boundary 的异常情况
+        data_end = body.size(); 
+    }
+
+    LOG_INFO("step 4");
+    // 5. 按精确字节长度提取二进制数据（绝不进行 pop_back 等文本操作）
+    if (data_end <= data_start) return {};
+    
+    const uint8_t* raw_ptr = reinterpret_cast<const uint8_t*>(body.data() + data_start);
+    size_t data_len = data_end - data_start;
+    
+    cv::Mat img_data(1, data_len, CV_8UC1, const_cast<uint8_t*>(raw_ptr));
+    LOG_INFO("step 5");
+    return cv::imdecode(img_data, cv::IMREAD_COLOR);
 }
 
 namespace inference {
@@ -205,40 +260,43 @@ cv::Mat RequestHandlers::ExtractImage(const std::string& body,
     // 情况 2: multipart/form-data
     if (content_type.find("multipart/") != std::string::npos) {
         // 查找 boundary
-        auto boundary_pos = content_type.find("boundary=");
-        if (boundary_pos != std::string::npos) {
-            std::string boundary = "--" + content_type.substr(boundary_pos + 9);
+        // auto boundary_pos = content_type.find("boundary=");
 
-            // 简化处理：查找 boundary 之间的二进制数据
-            auto start = body.find(boundary);
-            if (start != std::string::npos) {
-                start = body.find("\n", body.find("\n", start) + 1);
-                if (start != std::string::npos) {
-                    auto end = body.find(boundary, start);
-                    if (end == std::string::npos) {
-                        end = body.size() - 1;
-                    }
+        return parse_multipart_image(content_type, body);
 
-                    // 跳过 header 部分
-                    auto header_end = body.find("\n\n", start);
-                    if (header_end == std::string::npos) {
-                        header_end = body.find("\r\n\r\n", start);
-                    }
-                    if (header_end != std::string::npos) {
-                        std::string img_data = body.substr(header_end + 4,
-                                                           end - header_end - 4);
-                        // 去除可能的 \r\n
-                        while (!img_data.empty() &&
-                               (img_data.back() == '\r' || img_data.back() == '\n')) {
-                            img_data.pop_back();
-                        }
+        // if (boundary_pos != std::string::npos) {
+        //     std::string boundary = "--" + content_type.substr(boundary_pos + 9);
 
-                        std::vector<uint8_t> data(img_data.begin(), img_data.end());
-                        return cv::imdecode(cv::Mat(data), cv::IMREAD_COLOR);
-                    }
-                }
-            }
-        }
+        //     // 简化处理：查找 boundary 之间的二进制数据
+        //     auto start = body.find(boundary);
+        //     if (start != std::string::npos) {
+        //         start = body.find("\n", body.find("\n", start) + 1);
+        //         if (start != std::string::npos) {
+        //             auto end = body.find(boundary, start);
+        //             if (end == std::string::npos) {
+        //                 end = body.size() - 1;
+        //             }
+
+        //             // 跳过 header 部分
+        //             auto header_end = body.find("\n\n", start);
+        //             if (header_end == std::string::npos) {
+        //                 header_end = body.find("\r\n\r\n", start);
+        //             }
+        //             if (header_end != std::string::npos) {
+        //                 std::string img_data = body.substr(header_end + 4,
+        //                                                    end - header_end - 4);
+        //                 // 去除可能的 \r\n
+        //                 while (!img_data.empty() &&
+        //                        (img_data.back() == '\r' || img_data.back() == '\n')) {
+        //                     img_data.pop_back();
+        //                 }
+
+        //                 std::vector<uint8_t> data(img_data.begin(), img_data.end());
+        //                 return cv::imdecode(cv::Mat(data), cv::IMREAD_COLOR);
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     // 情况 3: JSON body 中包含 base64 编码的图像

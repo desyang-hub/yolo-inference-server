@@ -44,7 +44,7 @@ def send_request(server_url, image_path):
     return {
         "latency": latency,
         "status_code": response.status_code,
-        "response": response.json() if response.status_code == 200 else None,
+        "response": response.json() if response.status_code != 200 else None,
     }
 
 
@@ -81,11 +81,12 @@ def run_benchmark(server_url, image_path, num_requests, concurrency):
                 if result["status_code"] == 200:
                     success_count += 1
                 else:
+                    print("err result: ", result)
                     error_count += 1
 
                 # 进度显示
                 if (i + 1) % max(1, num_requests // 10) == 0:
-                    print(f"\rProgress: {i + 1}/{num_requests}", end="")
+                    print(f"\rProgress: {i + 1}/{num_requests}")
 
             except Exception as e:
                 error_count += 1

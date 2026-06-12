@@ -52,14 +52,14 @@ void PrintUsage(const char* program) {
 int main(int argc, char* argv[]) {
     // 解析命令行参数
     static struct option long_options[] = {
-        {"model",       required_argument, 0, 'm'},
-        {"port",        required_argument, 0, 'p'},
-        {"threads",     required_argument, 0, 't'},
-        {"batch-size",  required_argument, 0, 'b'},
-        {"batch-timeout", required_argument, 0, 'T'},
-        {"config",      required_argument, 0, 'c'},
-        {"log-level",   required_argument, 0, 'l'},
-        {"help",        no_argument,       0, 'h'},
+        {"model",           required_argument, 0, 'm'},
+        {"port",            required_argument, 0, 'p'},
+        {"threads",         required_argument, 0, 't'},
+        {"batch-size",      required_argument, 0, 'b'},
+        {"batch-timeout",   required_argument, 0, 'T'},
+        {"config",          required_argument, 0, 'c'},
+        {"log-level",       required_argument, 0, 'l'},
+        {"help",            no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
 
