@@ -85,7 +85,6 @@ static std::string base64_decode(const std::string& encoded) {
 static cv::Mat parse_multipart_image(const std::string& content_type, const std::string& body) {
     // 1. 安全提取 boundary（处理可能存在的引号和后续参数）
     auto b_pos = content_type.find("boundary=");
-    LOG_INFO("step 1");
     if (b_pos == std::string::npos) return {};
     
     std::string boundary = content_type.substr(b_pos + 9);
@@ -100,7 +99,6 @@ static cv::Mat parse_multipart_image(const std::string& content_type, const std:
 
     // 2. 定位第一个 part 的开始
     auto part_start = body.find(delimiter);
-    LOG_INFO("step 2");
     if (part_start == std::string::npos) return {};
     
     // 跳过 delimiter 本身和紧随其后的 \r\n
@@ -108,7 +106,6 @@ static cv::Mat parse_multipart_image(const std::string& content_type, const std:
 
     // 3. 寻找 Header 与 Binary Data 的分界线（严格使用 \r\n\r\n）
     auto header_end = body.find("\r\n\r\n", part_start);
-    LOG_INFO("step 3");
     if (header_end == std::string::npos) return {};
     
     size_t data_start = header_end + 4;
@@ -121,7 +118,6 @@ static cv::Mat parse_multipart_image(const std::string& content_type, const std:
         data_end = body.size(); 
     }
 
-    LOG_INFO("step 4");
     // 5. 按精确字节长度提取二进制数据（绝不进行 pop_back 等文本操作）
     if (data_end <= data_start) return {};
     
@@ -129,7 +125,6 @@ static cv::Mat parse_multipart_image(const std::string& content_type, const std:
     size_t data_len = data_end - data_start;
     
     cv::Mat img_data(1, data_len, CV_8UC1, const_cast<uint8_t*>(raw_ptr));
-    LOG_INFO("step 5");
     return cv::imdecode(img_data, cv::IMREAD_COLOR);
 }
 

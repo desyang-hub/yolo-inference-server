@@ -88,9 +88,9 @@ std::future<InferenceResponse> InferenceService::SubmitRequest(PendingRequest&& 
         response.request_id = request.id;
         response.status = Status::Unavailable("Service not initialized");
 
-        auto future = std::make_shared<std::promise<InferenceResponse>>();
-        future->set_value(std::move(response));
-        return future->get_future();
+        std::promise<InferenceResponse> p;
+        p.set_value(std::move(response));
+        return p.get_future();
     }
 
     return batch_scheduler_->Submit(std::move(request));

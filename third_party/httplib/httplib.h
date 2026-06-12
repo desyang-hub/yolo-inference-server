@@ -1,11 +1,3 @@
-/**
- * @FilePath     : /yolo-onnx-inference/third_party/httplib.h
- * @Description  :  
- * @Author       : desyang
- * @Date         : 2026-06-12 15:16:58
- * @LastEditors  : desyang
- * @LastEditTime : 2026-06-12 15:17:00
-**/
 //
 //  httplib.h
 //
