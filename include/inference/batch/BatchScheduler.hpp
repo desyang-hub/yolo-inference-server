@@ -94,7 +94,8 @@ public:
      */
     void Initialize(ModelSession* session,
                     ImagePreprocessor* preprocessor,
-                    NMS* postprocessor);
+                    NMS* postprocessor,
+                    float conf_threshold = 0.25f);
 
     /**
      * @brief 提交推理请求
@@ -156,6 +157,7 @@ private:
     ModelSession* session_ = nullptr;
     ImagePreprocessor* preprocessor_ = nullptr;
     NMS* postprocessor_ = nullptr;
+    float conf_threshold_ = 0.25f;  // 置信度阈值，从 ModelConfig 传入
 
     // 待处理队列
     mutable std::mutex queue_mutex_;

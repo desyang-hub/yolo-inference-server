@@ -31,7 +31,7 @@
       },
       "postprocess": {
         "num_classes": 80,
-        "conf_threshold": 0.25,
+        "conf_threshold": 0.80,
         "nms_threshold": 0.45,
         "max_detections": 300
       }

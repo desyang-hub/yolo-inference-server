@@ -45,7 +45,7 @@ void PrintUsage(const char* program) {
               << "  -T, --batch-timeout MS Batch timeout ms (default: 10)\n"
               << "  -g, --gpu PROVIDER     GPU provider: cuda, tensorrt (default: none=CPU)\n"
               << "  -G, --gpu-id ID        GPU device ID (default: 0)\n"
-              << "  -c, --config FILE      Config file path\n"
+              << "  -C, --conf-threshold F Confidence threshold (default: 0.80)\n"
               << "  -l, --log-level LEVEL  Log level (debug/info/warn/error)\n"
               << "  -h, --help             Show this help\n"
               << "\nExample:\n"
@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
         {"gpu",             required_argument, 0, 'g'},
         {"gpu-id",          required_argument, 0, 'G'},
         {"config",          required_argument, 0, 'c'},
+        {"conf-threshold",  required_argument, 0, 'C'},
         {"log-level",       required_argument, 0, 'l'},
         {"help",            no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -75,10 +76,11 @@ int main(int argc, char* argv[]) {
     int batch_timeout = 10;
     std::string gpu_provider = "none";
     int gpu_device_id = 0;
+    float conf_threshold = 0.80f;
     std::string log_level = "info";
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:p:t:b:T:g:G:c:l:h", long_options, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:p:t:b:T:g:G:c:C:l:h", long_options, nullptr)) != -1) {
         switch (opt) {
             case 'm':
                 model_path = optarg;
@@ -103,6 +105,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'l':
                 log_level = optarg;
+                break;
+            case 'C':
+                conf_threshold = std::atof(optarg);
                 break;
             case 'h':
                 PrintUsage(argv[0]);
@@ -150,7 +155,7 @@ int main(int argc, char* argv[]) {
     config.batch_config.timeout = std::chrono::milliseconds(batch_timeout);
 
     // 配置模型
-    auto model_config = inference::CreateYOLOv8Config(model_path, 640, 80, provider);
+    auto model_config = inference::CreateYOLOv8Config(model_path, 640, 80, provider, conf_threshold);
     model_config.gpu_device_id = gpu_device_id;
     config.model_configs.push_back(std::move(model_config));
 

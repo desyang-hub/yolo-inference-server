@@ -2,8 +2,13 @@
 """
 推理结果可视化工具
 
-向推理服务器发送单张图像，将检测结果可视化后保存。
-也支持对 assets/ 目录下所有图像进行批量推理和可视化。
+向推理服务器发送图像/视频帧，将检测结果可视化后保存或实时显示。
+
+支持的数据源:
+  - 单张图片  (-i / --image)
+  - 目录批量图片  (-d / --dir)
+  - 视频文件  (-v / --video)
+  - 实时摄像头  (-c / --camera)
 
 使用示例:
     # 单图推理 + 可视化
@@ -11,6 +16,12 @@
 
     # 批量处理 assets 下所有图片
     python scripts/visualize.py --dir assets/
+
+    # 视频推理，输出带检测框的视频
+    python scripts/visualize.py -v recording.mp4
+
+    # 摄像头实时推理，窗口显示
+    python scripts/visualize.py -c
 
     # 指定输出目录和置信度阈值
     python scripts/visualize.py -i assets/bus.jpg -o results/ -t 0.3
@@ -20,7 +31,6 @@
 """
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -121,15 +131,15 @@ def draw_detections(image: np.ndarray, detections: list,
         # 绘制边界框
         cv2.rectangle(vis, (x1, y1), (x2, y2), color, thickness * 2)
 
-        # 标签背景
+        # 标签文字（同色，无背景）
         label = f"{cls_name} {conf:.2f}"
         (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX,
                                               0.6 * thickness, thickness)
-        cv2.rectangle(vis, (x1, y1 - th - baseline - 4),
-                      (x1 + tw, y1), color, thickness * 3)
-        cv2.putText(vis, label, (x1, y1 - 4),
+        # 文字放在框上方，如果超出图像顶部则放在框内
+        text_y = max(y1 - 4, th + 4)
+        cv2.putText(vis, label, (x1, text_y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6 * thickness,
-                    (255, 255, 255), thickness)
+                    color, thickness)
 
     return vis
 
@@ -209,6 +219,278 @@ def infer_single(server_url: str, image_path: str,
     }
 
 
+def infer_frame(server_url: str, frame: np.ndarray, conf_threshold: float) -> tuple:
+    """
+    对单帧图像发送推理请求并绘制检测结果。
+
+    Returns:
+        (vis_image, detection_count, latency_ms) 或 (None, 0, -1) 失败时
+    """
+    t0 = time.time()
+
+    # 将帧编码为 JPEG 字节
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    byte_data = buf.tobytes()
+
+    try:
+        resp = requests.post(
+            f"{server_url}/infer",
+            files={"image": ("frame.jpg", byte_data, "image/jpeg")},
+            timeout=60,
+        )
+    except Exception as e:
+        print(f"  [ERROR] Request failed: {e}")
+        return None, 0, -1
+
+    latency_ms = (time.time() - t0) * 1000
+
+    if resp.status_code != 200:
+        return None, 0, -1
+
+    result = resp.json()
+    if result.get("status") != "ok":
+        return None, 0, -1
+
+    detections = result.get("detections", [])
+    vis = draw_detections(frame, detections, conf_threshold)
+    count = len([d for d in detections if d["confidence"] >= conf_threshold])
+
+    # 在左上角叠加帧统计信息
+    stats_text = [
+        f"FPS: {1.0 / max(latency_ms / 1000, 0.001):.1f}",
+        f"Latency: {latency_ms:.0f}ms",
+        f"Detections: {count}",
+    ]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    margin = 10
+    for i, line in enumerate(stats_text):
+        y = margin + 16 + i * 18
+        cv2.putText(vis, line, (margin, y), font, 0.5,
+                    (0, 255, 0), 1)
+
+    return vis, count, latency_ms
+
+
+def infer_video(server_url: str, video_path: str,
+                conf_threshold: float, output_dir: str,
+                skip_frames: int = 1) -> dict:
+    """
+    对视频文件逐帧推理，输出带检测结果的视频。
+
+    Args:
+        server_url:       推理服务器地址
+        video_path:       输入视频路径
+        conf_threshold:   置信度阈值
+        output_dir:       输出目录
+        skip_frames:      跳帧数（每 (skip_frames+1) 帧推理一次以加速）
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"  [ERROR] Failed to open video: {video_path}")
+        return {"status": "error", "error": "video open failed"}
+
+    # 获取视频信息
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(f"  Video: {w}x{h}, FPS={fps:.1f}, Total frames={total_frames}")
+
+    # 输出视频路径
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    stem = Path(video_path).stem
+    out_path = os.path.join(output_dir, f"{stem}_result.mp4")
+    idx = 1
+    while os.path.exists(out_path):
+        out_path = os.path.join(output_dir, f"{stem}_result_{idx}.mp4")
+        idx += 1
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+
+    print(f"  Output: {out_path}")
+    print(f"  Skip frames: {skip_frames} (inference every {skip_frames + 1} frames)")
+    print()
+
+    # 推理统计
+    frame_idx = 0
+    inferred_frames = 0
+    total_detections = 0
+    latencies = []
+
+    # 缓存上一帧的检测结果，用于跳过帧的绘制
+    last_vis = None
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % (skip_frames + 1) == 0:
+                # 需要推理的帧
+                vis, count, latency = infer_frame(
+                    server_url, frame, conf_threshold
+                )
+                if vis is not None:
+                    last_vis = vis
+                    total_detections += count
+                    latencies.append(latency)
+                    inferred_frames += 1
+                else:
+                    # 推理失败，使用原始帧
+                    last_vis = frame
+            else:
+                # 跳过的帧，直接复制原始帧
+                last_vis = frame
+
+            writer.write(last_vis)
+
+            # 进度打印
+            frame_idx += 1
+            if frame_idx % 30 == 0 or frame_idx == total_frames:
+                pct = frame_idx / total_frames * 100
+                print(f"  Progress: {frame_idx}/{total_frames} ({pct:.1f}%)")
+
+    except KeyboardInterrupt:
+        print("\n  [INFO] Interrupted by user.")
+    finally:
+        cap.release()
+        writer.release()
+
+    # 汇总
+    avg_lat = np.mean(latencies) if latencies else 0
+    print(f"\n{'='*50}")
+    print(f"  Video Inference Summary")
+    print(f"{'='*50}")
+    print(f"  Frames processed:  {frame_idx}")
+    print(f"  Frames inferred:   {inferred_frames}")
+    print(f"  Total detections:  {total_detections}")
+    print(f"  Avg latency:       {avg_lat:.1f} ms")
+    print(f"  Output:            {out_path}")
+    print(f"{'='*50}\n")
+
+    return {
+        "status": "ok",
+        "frames": frame_idx,
+        "inferred": inferred_frames,
+        "total_detections": total_detections,
+        "avg_latency_ms": avg_lat,
+        "output": out_path,
+    }
+
+
+def infer_camera(server_url: str, camera_id: int,
+                 conf_threshold: float, skip_frames: int = 1) -> dict:
+    """
+    打开摄像头进行实时推理，窗口显示检测结果。
+
+    Args:
+        server_url:     推理服务器地址
+        camera_id:      摄像头设备 ID（0 表示默认摄像头）
+        conf_threshold: 置信度阈值
+        skip_frames:    跳帧数（每 (skip_frames+1) 帧推理一次）
+
+    按 'q' 或 ESC 退出。
+    """
+    cap = cv2.VideoCapture(camera_id)
+    if not cap.isOpened():
+        print(f"  [ERROR] Failed to open camera {camera_id}")
+        return {"status": "error", "error": "camera open failed"}
+
+    # 设置摄像头分辨率
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"  Camera: {actual_w}x{actual_h}, Device ID={camera_id}")
+    print(f"  Skip frames: {skip_frames} (inference every {skip_frames + 1} frames)")
+    print(f"  Press 'q' or ESC to exit\n")
+
+    # 统计
+    frame_idx = 0
+    inferred_frames = 0
+    total_detections = 0
+    latencies = []
+
+    # FPS 计算
+    fps_history = []
+
+    # 缓存最新推理结果
+    last_vis = None
+    last_count = 0
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("  [WARN] Failed to read frame from camera.")
+                break
+
+            if frame_idx % (skip_frames + 1) == 0:
+                # 需要推理
+                frame_start = time.time()
+                vis, count, latency = infer_frame(
+                    server_url, frame, conf_threshold
+                )
+                if vis is not None:
+                    last_vis = vis
+                    last_count = count
+                    total_detections += count
+                    latencies.append(latency)
+                    inferred_frames += 1
+                else:
+                    last_vis = frame
+
+                # 计算端到端 FPS
+                elapsed = (time.time() - frame_start) * 1000
+                fps_history.append(elapsed)
+                if len(fps_history) > 30:
+                    fps_history.pop(0)
+            else:
+                last_vis = frame
+
+            cv2.imshow("YOLO Detection - Press 'q' to exit", last_vis)
+
+            frame_idx += 1
+
+            # 按 q 或 ESC 退出
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == 27:
+                break
+
+    except KeyboardInterrupt:
+        print("\n  [INFO] Interrupted by user.")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+    # 汇总
+    avg_frame_time = np.mean(fps_history) if fps_history else 0
+    avg_fps = 1000.0 / avg_frame_time if avg_frame_time > 0 else 0
+    avg_lat = np.mean(latencies) if latencies else 0
+
+    print(f"\n{'='*50}")
+    print(f"  Camera Inference Summary")
+    print(f"{'='*50}")
+    print(f"  Frames processed:  {frame_idx}")
+    print(f"  Frames inferred:   {inferred_frames}")
+    print(f"  Total detections:  {total_detections}")
+    print(f"  Avg FPS:           {avg_fps:.1f}")
+    print(f"  Avg latency:       {avg_lat:.1f} ms")
+    print(f"{'='*50}\n")
+
+    return {
+        "status": "ok",
+        "frames": frame_idx,
+        "inferred": inferred_frames,
+        "total_detections": total_detections,
+        "avg_fps": avg_fps,
+        "avg_latency_ms": avg_lat,
+    }
+
+
 def check_health(server_url: str) -> bool:
     """检查服务器是否健康。"""
     try:
@@ -231,6 +513,8 @@ def main():
 Examples:
   %(prog)s -i assets/bus.jpg                      # single image
   %(prog)s --dir assets/                          # all images in assets/
+  %(prog)s -v recording.mp4                       # video inference
+  %(prog)s -c                                     # live camera
   %(prog)s -i assets/bus.jpg -t 0.1 -o output/    # low threshold + custom output
         """,
     )
@@ -240,14 +524,24 @@ Examples:
                         help="Single image path")
     parser.add_argument("-d", "--dir",
                         help="Directory to process all images in")
+    parser.add_argument("-v", "--video",
+                        help="Video file path for inference")
+    parser.add_argument("-c", "--camera", nargs="?", const=0, default=-1, type=int,
+                        help="Live camera inference. Optional device ID (default: 0)")
     parser.add_argument("-o", "--output", default="output/visualize",
                         help="Output directory (default: output/visualize)")
     parser.add_argument("-t", "--threshold", type=float, default=0.25,
                         help="Confidence threshold (default: 0.25)")
+    parser.add_argument("-s", "--skip-frames", type=int, default=1,
+                        help="Skip N frames between inference (video/camera only, default: 1)")
 
     args = parser.parse_args()
 
-    if not args.image and not args.dir:
+    # 检查是否有有效数据源
+    has_data_source = bool(args.image or args.dir or args.video)
+    is_camera = args.camera >= 0
+
+    if not has_data_source and not is_camera:
         parser.print_help()
         sys.exit(1)
 
@@ -257,6 +551,22 @@ Examples:
         print("Server is not healthy. Please start the inference server first.")
         sys.exit(1)
 
+    # --- 视频推理模式 ---
+    if args.video:
+        print(f"\nMode: Video Inference")
+        print(f"Input: {args.video}")
+        infer_video(args.url, args.video, args.threshold,
+                    args.output, args.skip_frames)
+        return
+
+    # --- 摄像头实时推理模式 ---
+    if is_camera:
+        cam_id = args.camera
+        print(f"\nMode: Camera Inference (Device {cam_id})")
+        infer_camera(args.url, cam_id, args.threshold, args.skip_frames)
+        return
+
+    # --- 图片模式 ---
     # 收集图像列表
     image_paths = []
     supported_ext = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}

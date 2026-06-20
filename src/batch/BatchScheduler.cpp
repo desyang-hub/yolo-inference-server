@@ -32,10 +32,12 @@ BatchScheduler::~BatchScheduler() {
 
 void BatchScheduler::Initialize(ModelSession* session,
                                  ImagePreprocessor* preprocessor,
-                                 NMS* postprocessor) {
+                                 NMS* postprocessor,
+                                 float conf_threshold) {
     session_ = session;
     preprocessor_ = preprocessor;
     postprocessor_ = postprocessor;
+    conf_threshold_ = conf_threshold;
 
 #ifdef ONNXRUNTIME_FOUND
     // 初始化 ONNX 推理环境
@@ -309,52 +311,108 @@ void BatchScheduler::ProcessBatch(std::vector<PendingRequest>& batch) {
             auto type_info = output_tensor.GetTensorTypeAndShapeInfo();
             auto shape = type_info.GetShape();
 
-            // YOLOv8 输出格式：[batch, 84, 8400] 或 [batch, 25200, 84]
-            // 84 = 4 (box) + 80 (classes)
+            // YOLOv8 输出格式：[batch, 84, 8400] 或 [batch, 8400, 84]
+            // 84 = 4 (box: x,y,w,h in pixels) + 80 (class scores after sigmoid)
             float* output_data = output_tensor.GetTensorMutableData<float>();
 
-            // 解析 batch 中每个请求的输出
-            int64_t num_anchors = shape.size() >= 3 ? shape[2] : 8400;
-            int64_t num_channels = shape.size() >= 2 ? shape[1] : 84;
+            int64_t dim1 = shape.size() >= 2 ? shape[1] : 84;
+            int64_t dim2 = shape.size() >= 3 ? shape[2] : 8400;
+
+            // 识别输出布局
+            bool is_nca = (dim1 == 84 && dim2 == 8400);  // [batch, 84, 8400]
+            int64_t num_anchors, num_classes = 80;
+            float normalize_factor = 1.0f / 640.0f;  // YOLOv8 输出像素坐标，需归一化
+
+            if (is_nca) {
+                num_anchors = dim2;  // 8400
+            } else {
+                num_anchors = dim1;  // 8400 for [batch, 8400, 84]
+            }
+
+            int64_t total_per_batch = num_anchors * (num_classes + 4);
 
             for (size_t batch_idx = 0; batch_idx < batch.size(); ++batch_idx) {
-                float* batch_output = output_data + batch_idx * num_anchors * num_channels;
+                float* batch_output = output_data + batch_idx * total_per_batch;
                 std::vector<Detection> raw_detections;
 
                 // 解析每个 anchor 的预测
                 for (int64_t anchor_idx = 0; anchor_idx < num_anchors; ++anchor_idx) {
-                    float* det = batch_output + anchor_idx * num_channels;
+                    float x_center, y_center, width, height;
 
-                    // 提取边界框（归一化坐标：x_center, y_center, width, height）
-                    float x_center = det[0];
-                    float y_center = det[1];
-                    float width = det[2];
-                    float height = det[3];
+                    if (is_nca) {
+                        // [batch, 84, 8400]: channel-major
+                        //  data[channel * num_anchors + anchor_idx]
+                        float* ch0 = batch_output + 0 * num_anchors;
+                        float* ch1 = batch_output + 1 * num_anchors;
+                        float* ch2 = batch_output + 2 * num_anchors;
+                        float* ch3 = batch_output + 3 * num_anchors;
+                        x_center = ch0[anchor_idx];
+                        y_center = ch1[anchor_idx];
+                        width  = ch2[anchor_idx];
+                        height = ch3[anchor_idx];
 
-                    // 提取最高置信度类别
-                    float max_conf = 0.0f;
-                    int class_id = -1;
-                    for (int c = 0; c < 80; ++c) {
-                        float conf = det[4 + c];
-                        if (conf > max_conf) {
-                            max_conf = conf;
-                            class_id = c;
+                        // 提取最高置信度类别（channel-major 访问）
+                        float max_conf = 0.0f;
+                        int class_id = -1;
+                        for (int c = 0; c < num_classes; ++c) {
+                            float conf = batch_output[(4 + c) * num_anchors + anchor_idx];
+                            if (conf > max_conf) {
+                                max_conf = conf;
+                                class_id = c;
+                            }
                         }
-                    }
 
-                    // 应用置信度阈值（默认 0.25，与 YOLOv8 一致）
-                    if (max_conf > 0.25f) {
-                        Detection det_result;
-                        det_result.x_center = x_center;
-                        det_result.y_center = y_center;
-                        det_result.width = width;
-                        det_result.height = height;
-                        det_result.confidence = max_conf;
-                        det_result.class_id = class_id;
-                        if (class_id >= 0 && class_id < static_cast<int>(CLASS_NAMES.size())) {
-                            det_result.class_name = CLASS_NAMES[class_id];
+                        // 归一化坐标（像素 → [0,1]）
+                        x_center *= normalize_factor;
+                        y_center *= normalize_factor;
+                        width  *= normalize_factor;
+                        height *= normalize_factor;
+
+                        // 应用置信度阈值
+                        if (max_conf > conf_threshold_) {
+                            Detection det_result;
+                            det_result.x_center = x_center;
+                            det_result.y_center = y_center;
+                            det_result.width = width;
+                            det_result.height = height;
+                            det_result.confidence = max_conf;
+                            det_result.class_id = class_id;
+                            if (class_id >= 0 && class_id < static_cast<int>(CLASS_NAMES.size())) {
+                                det_result.class_name = CLASS_NAMES[class_id];
+                            }
+                            raw_detections.push_back(det_result);
                         }
-                        raw_detections.push_back(det_result);
+                    } else {
+                        // [batch, 8400, 84]: anchor-major
+                        float* det = batch_output + anchor_idx * (num_classes + 4);
+                        x_center = det[0] * normalize_factor;
+                        y_center = det[1] * normalize_factor;
+                        width  = det[2] * normalize_factor;
+                        height = det[3] * normalize_factor;
+
+                        float max_conf = 0.0f;
+                        int class_id = -1;
+                        for (int c = 0; c < num_classes; ++c) {
+                            float conf = det[4 + c];
+                            if (conf > max_conf) {
+                                max_conf = conf;
+                                class_id = c;
+                            }
+                        }
+
+                        if (max_conf > conf_threshold_) {
+                            Detection det_result;
+                            det_result.x_center = x_center;
+                            det_result.y_center = y_center;
+                            det_result.width = width;
+                            det_result.height = height;
+                            det_result.confidence = max_conf;
+                            det_result.class_id = class_id;
+                            if (class_id >= 0 && class_id < static_cast<int>(CLASS_NAMES.size())) {
+                                det_result.class_name = CLASS_NAMES[class_id];
+                            }
+                            raw_detections.push_back(det_result);
+                        }
                     }
                 }
 

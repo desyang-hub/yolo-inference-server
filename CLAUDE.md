@@ -104,6 +104,8 @@ HTTP Client → muduo TcpServer → HttpContext (state machine parse)
 ## Important Notes
 
 - **Execution Providers:** `ModelConfig::GpuProvider` enum (`NONE`/`CUDA`/`TENSORRT`) controls which ONNX Runtime EP is registered in `ConfigureSessionOptions()`. CPU EP is always appended as the final fallback. CLI: `--gpu cuda` or `--gpu tensorrt`, `--gpu-id 0`. Requires a GPU-capable ONNX Runtime build — the CPU-only `third_party/onnxruntime/` won't work with CUDA/TensorRT.
+- **YOLOv8 Output Parsing:** `BatchScheduler.cpp` handles both `[batch, 84, 8400]` (NCA) and `[batch, 8400, 84]` (NAC) output shapes. YOLOv8 ONNX outputs box coordinates in **pixels** (not normalized) — coordinates must be divided by 640 to get `[0,1]` normalized values. Class scores have sigmoid applied by the model (no extra sigmoid needed).
+- **Visualization Script:** `scripts/visualize.py` supports 4 modes: single image (`-i`), batch directory (`-d`), video file (`-v`), and live camera (`-c`). All share `draw_detections()` and `infer_frame()`. Video/camera modes support `--skip-frames` to subsample inference.
 - **httplib.h:** Present in `third_party/httplib/` but **not actively used**. HTTP parsing is custom (state machine in `HttpContext.cpp`).
 - **Known issue:** There is an unresolved crash with `libonnxruntime` during debugging (see `docs/note.md`).
 - **Commit format:** Follows Conventional Commits (`feat:`, `fix:`, `refactor:`, etc.) with Chinese descriptions.

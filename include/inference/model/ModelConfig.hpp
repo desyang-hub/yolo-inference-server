@@ -19,6 +19,7 @@
 
 #include <string>
 #include <vector>
+#include <stddef.h>
 
 namespace inference {
 
@@ -71,7 +72,7 @@ struct YOLOPostprocessConfig {
     int num_classes = 80;              // 类别数
     float conf_threshold = 0.25f;      // 置信度阈值
     float nms_threshold = 0.45f;       // NMS 阈值
-    int max_detections = 300;          // 最大检测数
+    size_t max_detections = 300;          // 最大检测数
 };
 
 /**
@@ -125,7 +126,8 @@ struct ModelConfig {
 inline ModelConfig CreateYOLOv8Config(const std::string& model_path,
                                        int input_size = 640,
                                        int num_classes = 80,
-                                       ModelConfig::GpuProvider provider = ModelConfig::GpuProvider::NONE) {
+                                       ModelConfig::GpuProvider provider = ModelConfig::GpuProvider::NONE,
+                                       float conf_threshold = 0.25f) {
     ModelConfig config;
     config.name = "yolov8";
     config.model_path = model_path;
@@ -147,6 +149,7 @@ inline ModelConfig CreateYOLOv8Config(const std::string& model_path,
 
     // 后处理
     config.postprocess.num_classes = num_classes;
+    config.postprocess.conf_threshold = conf_threshold;
 
     // Execution Provider
     config.gpu_provider = provider;

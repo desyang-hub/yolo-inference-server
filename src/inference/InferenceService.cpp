@@ -56,7 +56,8 @@ Status InferenceService::Initialize() {
     // 5. 初始化批调度器（关联模型和处理器）
     if (model_manager_ && !config_.model_configs.empty()) {
         auto* session = model_manager_->GetSession(config_.model_configs[0].name);
-        batch_scheduler_->Initialize(session, preprocessor_.get(), nms_.get());
+        float conf_thresh = config_.model_configs[0].postprocess.conf_threshold;
+        batch_scheduler_->Initialize(session, preprocessor_.get(), nms_.get(), conf_thresh);
     }
 
     // 6. 启动批调度器
@@ -89,6 +90,8 @@ Status InferenceService::Initialize() {
             prov_name = "TensorRT (device=" + std::to_string(config_.model_configs[0].gpu_device_id) + ")";
         }
         LOG_INFO("  Execution Provider: {}", prov_name);
+        LOG_INFO("  Confidence threshold: {:.2f}",
+                 config_.model_configs[0].postprocess.conf_threshold);
     }
 
     return Status::Ok();
