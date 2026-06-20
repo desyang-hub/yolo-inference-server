@@ -100,11 +100,23 @@ struct ModelConfig {
     // 后处理配置
     YOLOPostprocessConfig postprocess;
 
-    // ONNX Runtime 配置
-    int intra_op_num_threads = 0;          // 0 = 自动
-    int inter_op_num_threads = 0;          // 0 = 自动
-    bool enable_gpu = false;               // 是否使用 GPU
-    int gpu_device_id = 0;                 // GPU 设备 ID
+    // ---------- ONNX Runtime Execution Provider ----------
+    /// Execution Provider 类型
+    enum class GpuProvider {
+        NONE = 0,   // CPU EP (default)
+        CUDA = 1,   // CUDA EP
+        TENSORRT = 2 // TensorRT EP (requires CUDA)
+    };
+
+    int intra_op_num_threads = 0;           // 0 = 自动
+    int inter_op_num_threads = 0;           // 0 = 自动
+    GpuProvider gpu_provider = GpuProvider::NONE;
+    int gpu_device_id = 0;                  // GPU / CUDA device ID
+
+    // CUDA / TensorRT 高级选项
+    size_t gpu_mem_limit = SIZE_MAX;        // GPU 显存上限（SIZE_MAX = 不限制）
+    int cudnn_conv_algo_search = 0;         // 0=Exhaustive, 1=Default, 2=Hidden
+    int cuda_arena_extend_strategy = 0;     // 0=kNextPowerOfTwo, 1=kSameAsRequested
 };
 
 /**
@@ -112,7 +124,8 @@ struct ModelConfig {
  */
 inline ModelConfig CreateYOLOv8Config(const std::string& model_path,
                                        int input_size = 640,
-                                       int num_classes = 80) {
+                                       int num_classes = 80,
+                                       ModelConfig::GpuProvider provider = ModelConfig::GpuProvider::NONE) {
     ModelConfig config;
     config.name = "yolov8";
     config.model_path = model_path;
@@ -134,6 +147,9 @@ inline ModelConfig CreateYOLOv8Config(const std::string& model_path,
 
     // 后处理
     config.postprocess.num_classes = num_classes;
+
+    // Execution Provider
+    config.gpu_provider = provider;
 
     return config;
 }

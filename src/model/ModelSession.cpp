@@ -10,6 +10,10 @@
 
 #include <system_error>
 
+#ifdef ONNXRUNTIME_FOUND
+#include <cpu_provider_factory.h> // OrtSessionOptionsAppendExecutionProvider_CPU
+#endif
+
 namespace inference {
 
 ModelSession::ModelSession()
@@ -79,24 +83,79 @@ Status ModelSession::Load(const ModelConfig& config) {
 #ifdef ONNXRUNTIME_FOUND
 
 Status ModelSession::ConfigureSessionOptions() {
-    // 设置执行模式
-    if (config_.intra_op_num_threads > 1) {
+    // 设置执行模式为并行 (可以利用多核)
+    session_options_.SetExecutionMode(ORT_PARALLEL);
+
+    // 启用图优化 (优化计算图执行顺序)
+    session_options_.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
+
+    // 设置线程数（CPU 模式下生效）
+    if (config_.intra_op_num_threads > 0) {
         session_options_.SetIntraOpNumThreads(config_.intra_op_num_threads);
         LOG_INFO("  Intra-op threads: {}", config_.intra_op_num_threads);
     }
 
-    if (config_.inter_op_num_threads > 1) {
+    if (config_.inter_op_num_threads > 0) {
         session_options_.SetInterOpNumThreads(config_.inter_op_num_threads);
         LOG_INFO("  Inter-op threads: {}", config_.inter_op_num_threads);
     }
 
-    // 设置执行模式为并行 (可以利用多核)
-    // ONNX Runtime 1.18: 使用 ExecutionMode 枚举
-    session_options_.SetExecutionMode(ORT_PARALLEL);
+    // -------------------------------------------------------
+    // Execution Provider 选择
+    // CUDA / TensorRT 优先执行 GPU 上的算子，
+    // CPU EP 作为 fallback 处理 GPU 不支持的算子。
+    // -------------------------------------------------------
+    switch (config_.gpu_provider) {
+        case ModelConfig::GpuProvider::CUDA: {
+            LOG_INFO("  Execution Provider: CUDA (device_id={})", config_.gpu_device_id);
+            OrtCUDAProviderOptions cuda_options;
+            cuda_options.device_id = config_.gpu_device_id;
+            cuda_options.gpu_mem_limit = config_.gpu_mem_limit;
+            cuda_options.cudnn_conv_algo_search =
+                static_cast<OrtCudnnConvAlgoSearch>(config_.cudnn_conv_algo_search);
+            cuda_options.arena_extend_strategy = config_.cuda_arena_extend_strategy;
+            cuda_options.do_copy_in_default_stream = 1;
+            session_options_.AppendExecutionProvider_CUDA(cuda_options);
+            break;
+        }
 
-    // 启用图优化 (优化计算图执行顺序)
-    // ONNX Runtime 1.18: SetGraphOptimizationLevel 替代 SetOptimizationLevel
-    session_options_.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
+        case ModelConfig::GpuProvider::TENSORRT: {
+            LOG_INFO("  Execution Provider: TensorRT (device_id={})", config_.gpu_device_id);
+            OrtTensorRTProviderOptions trt_options;
+            trt_options.device_id = config_.gpu_device_id;
+            trt_options.has_user_compute_stream = 0;
+            trt_options.user_compute_stream = nullptr;
+            trt_options.trt_max_partition_iterations = 10;
+            trt_options.trt_min_subgraph_size = 1;
+            trt_options.trt_max_workspace_size = static_cast<size_t>(config_.gpu_mem_limit);
+            trt_options.trt_fp16_enable = 1;
+            trt_options.trt_int8_enable = 0;
+            trt_options.trt_int8_calibration_table_name = nullptr;
+            trt_options.trt_int8_use_native_calibration_table = 0;
+            trt_options.trt_dla_enable = 0;
+            trt_options.trt_dla_core = 0;
+            trt_options.trt_dump_subgraphs = 0;
+            trt_options.trt_engine_cache_enable = 0;
+            trt_options.trt_engine_cache_path = nullptr;
+            trt_options.trt_engine_decryption_enable = 0;
+            trt_options.trt_engine_decryption_lib_path = nullptr;
+            trt_options.trt_force_sequential_engine_build = 0;
+            session_options_.AppendExecutionProvider_TensorRT(trt_options);
+            break;
+        }
+
+        case ModelConfig::GpuProvider::NONE:
+        default:
+            LOG_INFO("  Execution Provider: CPU");
+            break;
+    }
+
+    // CPU EP 始终追加，作为 fallback 处理 GPU 不支持的算子
+    // Ort::SessionOptions 没有 C++ 封装的 CPU provider，直接调用 C API
+    // Ort::SessionOptions 有隐式转换 operator OrtSessionOptions*
+    Ort::ThrowOnError(
+        OrtSessionOptionsAppendExecutionProvider_CPU(
+            static_cast<OrtSessionOptions*>(session_options_), 1 /* use_arena */));
 
     return Status::Ok();
 }

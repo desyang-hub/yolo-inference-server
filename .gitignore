@@ -37,6 +37,9 @@ test_results/
 *.jpeg
 *.bmp
 
+# Visualization output
+output/
+
 # Logs
 *.log
 

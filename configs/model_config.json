@@ -32,7 +32,10 @@
   "onnx_runtime": {
     "intra_op_num_threads": 0,
     "inter_op_num_threads": 0,
-    "enable_gpu": false,
-    "gpu_device_id": 0
+    "gpu_provider": "none",
+    "gpu_device_id": 0,
+    "gpu_mem_limit": 0,
+    "cudnn_conv_algo_search": 0,
+    "cuda_arena_extend_strategy": 0
   }
 }

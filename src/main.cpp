@@ -15,6 +15,7 @@
 #include <string>
 
 #include "inference/common/Logger.hpp"
+#include "inference/model/ModelConfig.hpp"
 #include "inference/server/InferenceServer.hpp"
 #include "inference/server/ServerConfig.hpp"
 
@@ -42,6 +43,8 @@ void PrintUsage(const char* program) {
               << "  -t, --threads NUM      IO threads (default: auto)\n"
               << "  -b, --batch-size NUM   Max batch size (default: 8)\n"
               << "  -T, --batch-timeout MS Batch timeout ms (default: 10)\n"
+              << "  -g, --gpu PROVIDER     GPU provider: cuda, tensorrt (default: none=CPU)\n"
+              << "  -G, --gpu-id ID        GPU device ID (default: 0)\n"
               << "  -c, --config FILE      Config file path\n"
               << "  -l, --log-level LEVEL  Log level (debug/info/warn/error)\n"
               << "  -h, --help             Show this help\n"
@@ -57,6 +60,8 @@ int main(int argc, char* argv[]) {
         {"threads",         required_argument, 0, 't'},
         {"batch-size",      required_argument, 0, 'b'},
         {"batch-timeout",   required_argument, 0, 'T'},
+        {"gpu",             required_argument, 0, 'g'},
+        {"gpu-id",          required_argument, 0, 'G'},
         {"config",          required_argument, 0, 'c'},
         {"log-level",       required_argument, 0, 'l'},
         {"help",            no_argument,       0, 'h'},
@@ -68,10 +73,12 @@ int main(int argc, char* argv[]) {
     int num_threads = 0;
     int batch_size = 8;
     int batch_timeout = 10;
+    std::string gpu_provider = "none";
+    int gpu_device_id = 0;
     std::string log_level = "info";
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:p:t:b:T:c:l:h", long_options, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:p:t:b:T:g:G:c:l:h", long_options, nullptr)) != -1) {
         switch (opt) {
             case 'm':
                 model_path = optarg;
@@ -88,6 +95,12 @@ int main(int argc, char* argv[]) {
             case 'T':
                 batch_timeout = std::atoi(optarg);
                 break;
+            case 'g':
+                gpu_provider = optarg;
+                break;
+            case 'G':
+                gpu_device_id = std::atoi(optarg);
+                break;
             case 'l':
                 log_level = optarg;
                 break;
@@ -98,6 +111,19 @@ int main(int argc, char* argv[]) {
                 PrintUsage(argv[0]);
                 return 1;
         }
+    }
+
+    // 解析 GPU provider 字符串
+    inference::ModelConfig::GpuProvider provider = inference::ModelConfig::GpuProvider::NONE;
+    if (gpu_provider == "cuda") {
+        provider = inference::ModelConfig::GpuProvider::CUDA;
+    } else if (gpu_provider == "tensorrt") {
+        provider = inference::ModelConfig::GpuProvider::TENSORRT;
+    } else if (gpu_provider != "none" && !gpu_provider.empty()) {
+        std::cerr << "Error: Unknown GPU provider '" << gpu_provider
+                  << "'. Use: none, cuda, tensorrt\n";
+        PrintUsage(argv[0]);
+        return 1;
     }
 
     // 检查必需参数
@@ -124,8 +150,9 @@ int main(int argc, char* argv[]) {
     config.batch_config.timeout = std::chrono::milliseconds(batch_timeout);
 
     // 配置模型
-    config.model_configs.push_back(
-        inference::CreateYOLOv8Config(model_path));
+    auto model_config = inference::CreateYOLOv8Config(model_path, 640, 80, provider);
+    model_config.gpu_device_id = gpu_device_id;
+    config.model_configs.push_back(std::move(model_config));
 
     // 验证配置
     if (!config.IsValid()) {

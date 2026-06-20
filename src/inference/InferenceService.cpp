@@ -79,6 +79,18 @@ Status InferenceService::Initialize() {
              config_.model_configs.empty() ? 0 : config_.model_configs[0].input.width(),
              config_.model_configs.empty() ? 0 : config_.model_configs[0].input.height());
 
+    // Log GPU provider info
+    if (!config_.model_configs.empty()) {
+        auto prov = config_.model_configs[0].gpu_provider;
+        std::string prov_name = "CPU";
+        if (prov == ModelConfig::GpuProvider::CUDA) {
+            prov_name = "CUDA (device=" + std::to_string(config_.model_configs[0].gpu_device_id) + ")";
+        } else if (prov == ModelConfig::GpuProvider::TENSORRT) {
+            prov_name = "TensorRT (device=" + std::to_string(config_.model_configs[0].gpu_device_id) + ")";
+        }
+        LOG_INFO("  Execution Provider: {}", prov_name);
+    }
+
     return Status::Ok();
 }
 
