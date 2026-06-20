@@ -29,6 +29,13 @@ ModelSession::ModelSession()
 
 ModelSession::~ModelSession() = default;
 
+#ifdef ONNXRUNTIME_FOUND
+Ort::Env& ModelSession::GetGlobalEnv() {
+    static Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "InferenceServer");
+    return env;
+}
+#endif
+
 Status ModelSession::Load(const ModelConfig& config) {
     LOG_INFO("Loading model: {} from {}", config.name, config.model_path);
 
@@ -45,7 +52,7 @@ Status ModelSession::Load(const ModelConfig& config) {
 
     // 步骤 2: 创建 Session（加载模型）
     try {
-        session_ = std::make_unique<Ort::Session>(env_, config.model_path.c_str(),
+        session_ = std::make_unique<Ort::Session>(GetGlobalEnv(), config.model_path.c_str(),
                                                     session_options_);
     } catch (const Ort::Exception& e) {
         LOG_ERROR("Failed to create ONNX Session: {}", e.what());

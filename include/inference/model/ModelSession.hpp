@@ -149,7 +149,8 @@ public:
 private:
 #ifdef ONNXRUNTIME_FOUND
     // ONNX Runtime 核心对象
-    Ort::Env env_;
+    // Ort::Env 使用全局单例（ONNX Runtime 推荐做法），避免每个 Session 创建独立 Env 导致内存泄漏
+    static Ort::Env& GetGlobalEnv();
     Ort::SessionOptions session_options_;
     std::unique_ptr<Ort::Session> session_;
 
